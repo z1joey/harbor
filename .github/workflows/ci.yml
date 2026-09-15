@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,14 +34,26 @@ jobs:
 
   release:
     name: Release
-    # Merged into main (or a direct push) -> build, package, publish a GitHub release.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only a version tag (v*) gets a release. The tag must point at a commit
+    # on main and match MARKETING_VERSION — checked below.
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: test
     runs-on: macos-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify tag is on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          STATUS=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_SHA" --jq .status)
+          echo "compare main...$GITHUB_SHA -> $STATUS"
+          if [[ "$STATUS" != "behind" && "$STATUS" != "identical" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not point at main — not releasing."
+            exit 1
+          fi
 
       - name: Install XcodeGen
         run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
@@ -58,10 +71,14 @@ jobs:
             -destination 'platform=macOS' \
             -derivedDataPath build build
 
-      - name: Package app bundle
+      - name: Verify version matches tag, then package
         run: |
           APP="build/Build/Products/Release/Harbor.app"
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          if [[ "$VERSION" != "${GITHUB_REF_NAME#v}" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $VERSION — bump project.yml and re-tag."
+            exit 1
+          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "Harbor-$VERSION.zip"
 
@@ -69,11 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v${VERSION}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
-          fi
-          gh release create "$TAG" "Harbor-${VERSION}.zip" \
+          gh release create "$GITHUB_REF_NAME" "Harbor-${VERSION}.zip" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Harbor $TAG" \
+            --title "Harbor $GITHUB_REF_NAME" \
             --generate-notes
