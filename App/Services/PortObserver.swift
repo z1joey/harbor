@@ -50,25 +50,35 @@ final class PortObserver: ObservableObject {
     }
 
     func pidsListening(on port: Int) -> [pid_t] {
-        listeners.filter { $0.port == port }.map(\.pid)
+        Self.pidsListening(in: listeners, on: port)
     }
 
     /// The listener on `port` that is not one of Harbor's managed PIDs, if any.
     func foreignListener(on port: Int, managedPIDs: Set<pid_t>) -> Listener? {
+        Self.foreignListener(in: listeners, on: port, managedPIDs: managedPIDs)
+    }
+
+    // MARK: - Pure helpers (unit-testable)
+
+    nonisolated static func pidsListening(in listeners: [Listener], on port: Int) -> [pid_t] {
+        listeners.filter { $0.port == port }.map(\.pid)
+    }
+
+    nonisolated static func foreignListener(in listeners: [Listener], on port: Int, managedPIDs: Set<pid_t>) -> Listener? {
         listeners.first { $0.port == port && !managedPIDs.contains($0.pid) }
     }
 
     // MARK: - lsof
 
     /// macOS ships lsof in /usr/sbin (older/toolchain layouts may differ) — resolve once.
-    private static let lsofPath: String? = {
+    private nonisolated static let lsofPath: String? = {
         for candidate in ["/usr/sbin/lsof", "/usr/bin/lsof", "/bin/lsof", "/usr/local/bin/lsof", "/opt/homebrew/bin/lsof"] {
             if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
         }
         return nil
     }()
 
-    static func collectListeners() -> Result<[Listener], HarborError> {
+    nonisolated static func collectListeners() -> Result<[Listener], HarborError> {
         guard let lsofPath else {
             return .failure(HarborError("lsof was not found on this system."))
         }
@@ -81,19 +91,19 @@ final class PortObserver: ObservableObject {
             let parsed = parseLsofOutput(output)
             guard !parsed.isEmpty else { return .success([]) }
             let commands = commandLines(for: Set(parsed.map(\.pid)))
-            var seen = Set<String>()
-            var result: [Listener] = []
-            for var listener in parsed {
-                listener.command = commands[listener.pid]
-                guard seen.insert(listener.id).inserted else { continue }
-                result.append(listener)
+            var result: [Listener] = parsed
+            for index in result.indices {
+                result[index].command = commands[result[index].pid]
             }
             result.sort { $0.port != $1.port ? $0.port < $1.port : $0.pid < $1.pid }
             return .success(result)
         }
     }
 
-    private static func parseLsofOutput(_ text: String) -> [Listener] {
+    /// Parses raw `lsof` output into listeners deduplicated by (port, pid) and
+    /// sorted by port. Internal (not private) so unit tests can feed fixture text.
+    nonisolated static func parseLsofOutput(_ text: String) -> [Listener] {
+        var seen = Set<String>()
         var listeners: [Listener] = []
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
             var line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -119,13 +129,17 @@ final class PortObserver: ObservableObject {
             guard let colon = name.lastIndex(of: ":") else { continue }
             guard let port = Int(name[name.index(after: colon)...]), port > 0, port <= 65535 else { continue }
             let proto = type.uppercased().contains("6") ? "TCP6" : "TCP"
-            listeners.append(Listener(port: port, pid: pid, processName: command, user: user, proto: proto, command: nil))
+            let listener = Listener(port: port, pid: pid, processName: command, user: user, proto: proto, command: nil)
+            // One pid can listen on both IPv4 and IPv6 — keep one row per (port, pid).
+            guard seen.insert(listener.id).inserted else { continue }
+            listeners.append(listener)
         }
+        listeners.sort { $0.port != $1.port ? $0.port < $1.port : $0.pid < $1.pid }
         return listeners
     }
 
     /// One `ps` pass for full command lines of the given PIDs.
-    private static func commandLines(for pids: Set<pid_t>) -> [pid_t: String] {
+    private nonisolated static func commandLines(for pids: Set<pid_t>) -> [pid_t: String] {
         guard !pids.isEmpty else { return [:] }
         guard case .success(let output) = runProcess(executable: "/bin/ps", arguments: ["-axo", "pid=,command="]) else {
             return [:]
@@ -147,7 +161,7 @@ final class PortObserver: ObservableObject {
         return map
     }
 
-    private static func runProcess(executable: String, arguments: [String]) -> Result<String, HarborError> {
+    private nonisolated static func runProcess(executable: String, arguments: [String]) -> Result<String, HarborError> {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
