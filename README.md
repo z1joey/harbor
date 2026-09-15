@@ -99,15 +99,41 @@ until fixed.
   http.server on port 8123 with a `ready_url`, and `cwd-check` proves working
   directories by writing `pwd` into `sub/harbor-cwd.txt`.
 
+## Testing
+
+The `HarborTests` target (41 XCTests) compiles the real service sources
+(`App/Models`, `App/Services`) unhosted, so tests run fast without launching
+the app. They cover the TOML parser, project registry store, lsof output
+parsing and dedupe, port-conflict filtering, the SIGTERM→SIGKILL tree kill,
+log ring buffers, the process supervisor lifecycle (cwd/env, stop, restart,
+auto-restart, failed state), and the Procfile/package.json importers.
+
+```bash
+xcodebuild test -project Harbor.xcodeproj -scheme Harbor \
+  -configuration Debug -destination 'platform=macOS'
+```
+
+## CI & releases
+
+`.github/workflows/ci.yml` runs on GitHub Actions macOS runners:
+
+- **Pull requests** — `xcodegen generate` + the unit-test suite above; PRs must
+  pass before merge.
+- **Push to `main`** (i.e. a merged PR) — the tests run again, then a Release
+  build of `Harbor.app` is packaged with `ditto` and published as a GitHub
+  release tagged `v<MARKETING_VERSION>` (suffix `-build.<n>` if that tag
+  already exists), with auto-generated notes.
+
 ## Development notes
 
 - Layout: `App/Models`, `App/Services` (no SwiftUI), `App/ViewModels`,
-  `App/Views` (popover, main window, ports, projects, logs, sheets).
+  `App/Views` (popover, main window, ports, projects, logs, sheets),
+  `Tests/` (XCTest for models + services).
 - TOML parsing uses [TOMLKit](https://github.com/LebJe/TOMLKit) (SPM).
 - Logs are in-memory ring buffers (~2000 lines per process).
 - Manual acceptance checklists: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)
-  (service-level behavior is additionally covered by compiled harnesses; see
-  that file for how it was verified and what remains a manual UI check).
+  (service-level ACs are also covered by the unit-test target; that file
+  records what was verified and which UI checks remain manual).
 
 ## Out of scope for v1
 
