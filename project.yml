@@ -45,10 +45,32 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.harbor.Harbor
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
 
+  HarborTests:
+    type: bundle.unit-test
+    platform: macOS
+    # Unhosted: compiles Models + Services into the test bundle so tests run
+    # without launching the app (CI-friendly).
+    sources:
+      - path: Tests
+      - path: App/Models
+      - path: App/Services
+    dependencies:
+      - package: TOMLKit
+        product: TOMLKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.harbor.HarborTests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Harbor:
     build:
       targets:
         Harbor: all
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - HarborTests
     run:
       config: Debug
