@@ -1,0 +1,21 @@
+name = "harbor-selftest"
+
+# Manual-testing fixture for Harbor. Register fixtures/selftest-project and try:
+# - logger: streams a line every second (log pane + AC3.2)
+# - server: python http.server on 8123 with ready_url (AC3.6 conflict, AC4.1/4.2)
+# - cwd-check: writes `pwd` into sub/harbor-cwd.txt (AC3.1 working directory)
+
+[[process]]
+name = "logger"
+command = "for i in $(seq 1 100000); do echo \"tick $i at $(date '+%H:%M:%S')\"; sleep 1; done"
+
+[[process]]
+name = "server"
+command = "python3 -m http.server 8123"
+port = 8123
+ready_url = "http://127.0.0.1:8123/"
+
+[[process]]
+name = "cwd-check"
+command = "pwd > harbor-cwd.txt; for i in $(seq 1 100000); do sleep 1; done"
+cwd = "sub"
