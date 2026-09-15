@@ -1,0 +1,15 @@
+.DS_Store
+.mimosa/
+
+# Xcode / Swift
+DerivedData/
+xcuserdata/
+*.xcuserstate
+build/
+.build/
+.swiftpm/
+
+# Release artifacts
+*.zip
+*.dSYM
+*.dmg

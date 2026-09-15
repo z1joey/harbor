@@ -1,0 +1,14 @@
+name = "example"
+
+[[process]]
+name = "api"
+command = "uv run uvicorn app.main:app --reload"
+cwd = "backend"
+port = 8000
+ready_url = "http://127.0.0.1:8000/health"
+
+[[process]]
+name = "web"
+command = "npm run dev"
+cwd = "frontend"
+port = 5173
