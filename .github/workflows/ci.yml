@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Harbor.xcodeproj \
+            -scheme Harbor \
+            -configuration Debug \
+            -destination 'platform=macOS'
+
+  release:
+    name: Release
+    # Merged into main (or a direct push) -> build, package, publish a GitHub release.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build Release app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Harbor.xcodeproj \
+            -scheme Harbor \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath build build
+
+      - name: Package app bundle
+        run: |
+          APP="build/Build/Products/Release/Harbor.app"
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "Harbor-$VERSION.zip"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
+          fi
+          gh release create "$TAG" "Harbor-${VERSION}.zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Harbor $TAG" \
+            --generate-notes
