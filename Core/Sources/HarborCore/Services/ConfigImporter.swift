@@ -3,7 +3,7 @@ import Foundation
 /// One-shot importers that propose `harbor.toml` contents from existing
 /// `Procfile` / `package.json` files. The user reviews the draft before saving.
 public enum ConfigImporter {
-    public struct Draft: Identifiable {
+    public struct Draft: Identifiable, Equatable {
         public let sourceName: String
         public let notes: [String]
         public let toml: String

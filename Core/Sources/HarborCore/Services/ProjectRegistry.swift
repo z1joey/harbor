@@ -1,8 +1,14 @@
 import Foundation
+import Darwin
 
 /// Loads/saves the list of registered project roots
 /// (`~/Library/Application Support/Harbor/projects.json`) and keeps parsed
 /// `Project` values up to date by watching each config file for changes.
+///
+/// The registry file is shared between frontends (GUI app and TUI may run at
+/// the same time): writes take an flock on a sibling `projects.json.lock`
+/// (atomic rename makes locking the store inode itself racy), and the store
+/// is watched so a frontend picks up the other's registrations.
 @MainActor
 public final class ProjectRegistry: ObservableObject {
     @Published public private(set) var projects: [Project] = []
@@ -10,6 +16,8 @@ public final class ProjectRegistry: ObservableObject {
     public let storeURL: URL
     private var watchers: [String: DispatchSourceFileSystemObject] = [:]
     private var reloadDebounce: [String: DispatchWorkItem] = [:]
+    private var storeWatcher: DispatchSourceFileSystemObject?
+    private var storeReloadDebounce: DispatchWorkItem?
 
     public init(storeURL: URL? = nil) {
         if let storeURL {
@@ -46,7 +54,22 @@ public final class ProjectRegistry: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(paths) else { return }
-        try? data.write(to: storeURL, options: .atomic)
+        withStoreLock {
+            try? data.write(to: storeURL, options: .atomic)
+        }
+        restartStoreWatcher()
+    }
+
+    /// Serializes store writes across frontends. The lock lives in a sibling
+    /// file because `writeStore` replaces the store inode via atomic rename.
+    private func withStoreLock<T>(_ body: () -> T) -> T {
+        let lockURL = storeURL.deletingLastPathComponent().appendingPathComponent("projects.json.lock")
+        let fd = open(lockURL.path, O_CREAT | O_RDWR, 0o644)
+        guard fd >= 0 else { return body() }
+        defer { close(fd) }
+        flock(fd, LOCK_EX)
+        defer { flock(fd, LOCK_UN) }
+        return body()
     }
 
     // MARK: - Loading
@@ -54,6 +77,17 @@ public final class ProjectRegistry: ObservableObject {
     public func load() {
         projects = readStore().map { buildProject(root: normalizedRoot(URL(fileURLWithPath: $0))) }
         syncStoreFromMemory()
+        restartWatchers()
+        restartStoreWatcher()
+    }
+
+    /// Re-reads the store after another frontend changed it. No write-back
+    /// (the content just came from the store) and a no-op when nothing really
+    /// changed — e.g. our own write bouncing back through the watcher.
+    private func loadFromStore() {
+        let paths = readStore()
+        guard paths != projects.map(\.id) else { return }
+        projects = paths.map { buildProject(root: normalizedRoot(URL(fileURLWithPath: $0))) }
         restartWatchers()
     }
 
@@ -190,5 +224,36 @@ public final class ProjectRegistry: ObservableObject {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
         reloadDebounce[projectID] = work
+    }
+
+    // MARK: - Store watching (cross-frontend)
+
+    private func restartStoreWatcher() {
+        storeWatcher?.cancel()
+        storeWatcher = nil
+        let fd = open(storeURL.path, O_EVTONLY)
+        guard fd >= 0 else { return } // store may not exist yet; re-armed on first write
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .delete, .rename],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleStoreReload()
+            }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        storeWatcher = source
+    }
+
+    private func scheduleStoreReload() {
+        storeReloadDebounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.loadFromStore()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+        storeReloadDebounce = work
     }
 }

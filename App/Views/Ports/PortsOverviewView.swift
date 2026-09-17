@@ -8,58 +8,18 @@ import HarborCore
 struct PortsOverviewView: View {
     @EnvironmentObject private var appState: AppState
 
-    struct Row: Identifiable {
-        let port: Int
-        let projectNames: [String]
-        let claimDetails: [String]
-        let listener: Listener?
-        let managedHolder: PortPlanner.ManagedHolder?
-
-        var id: Int { port }
-    }
-
-    @State private var selection = Set<Row.ID>()
+    @State private var selection = Set<HarborCoordinator.OverviewRow.ID>()
     @State private var copyFeedback: String?
 
-    private var rows: [Row] {
-        var namesByPort: [Int: Set<String>] = [:]
-        var detailsByPort: [Int: [String]] = [:]
-        func register(port: Int, projectName: String, detail: String) {
-            namesByPort[port, default: []].insert(projectName)
-            detailsByPort[port, default: []].append("\(projectName) — \(detail)")
-        }
-        for project in appState.registry.projects {
-            for definition in project.processes {
-                if let port = definition.port {
-                    register(port: port, projectName: project.name, detail: "process \(definition.name)")
-                } else if definition.autoPort {
-                    let key = ProcessKey(projectID: project.id, processName: definition.name)
-                    if let assigned = appState.supervisor.status(for: key).assignedPort {
-                        register(port: assigned, projectName: project.name,
-                                 detail: "process \(definition.name) (auto)")
-                    }
-                }
-            }
-            for claim in project.portClaims {
-                let note = claim.note ?? "claim"
-                register(port: claim.port, projectName: project.name, detail: note)
-            }
-        }
+    /// Row model built by HarborCoordinator, shared with the TUI.
+    private var rows: [HarborCoordinator.OverviewRow] {
         let listeners = appState.portObserver.listeners
-        var listenerByPort: [Int: Listener] = [:]
-        for listener in listeners where listenerByPort[listener.port] == nil {
-            listenerByPort[listener.port] = listener
-        }
-        let holdersByPID = appState.managedHolders(for: listeners)
-        let ports = Set(namesByPort.keys).union(listenerByPort.keys).sorted()
-        return ports.map { port in
-            let listener = listenerByPort[port]
-            return Row(port: port,
-                       projectNames: (namesByPort[port] ?? []).sorted(),
-                       claimDetails: detailsByPort[port] ?? [],
-                       listener: listener,
-                       managedHolder: listener.flatMap { holdersByPID[$0.pid] })
-        }
+        return HarborCoordinator.overviewRows(
+            projects: appState.registry.projects,
+            listeners: listeners,
+            holdersByPID: appState.managedHolders(for: listeners),
+            assignedPorts: appState.coordinator.assignedPortsByKey()
+        )
     }
 
     private var overlapsByPort: [Int: PortPlanner.StaticOverlap] {
@@ -67,7 +27,7 @@ struct PortsOverviewView: View {
                    uniquingKeysWith: { first, _ in first })
     }
 
-    private var selectedRow: Row? {
+    private var selectedRow: HarborCoordinator.OverviewRow? {
         guard let id = selection.first else { return nil }
         return rows.first { $0.id == id }
     }
@@ -202,7 +162,7 @@ struct PortsOverviewView: View {
                 }
             }
         }
-        .contextMenu(forSelectionType: Row.ID.self) { ids in
+        .contextMenu(forSelectionType: HarborCoordinator.OverviewRow.ID.self) { ids in
             if let row = rows.first(where: { ids.contains($0.id) }) {
                 if let listener = row.listener {
                     Button("Kill (port \(row.port), PID \(listener.pid))") {
@@ -225,12 +185,12 @@ struct PortsOverviewView: View {
         }
     }
 
-    private func statusText(for row: Row) -> String {
+    private func statusText(for row: HarborCoordinator.OverviewRow) -> String {
         guard row.listener != nil else { return "Free" }
         return row.managedHolder == nil ? "Listening (external)" : "Listening (managed)"
     }
 
-    private func holderText(for row: Row) -> String {
+    private func holderText(for row: HarborCoordinator.OverviewRow) -> String {
         guard let listener = row.listener else { return "—" }
         if let holder = row.managedHolder {
             return "\(holder.projectName) · \(holder.processName) (PID \(listener.pid))"

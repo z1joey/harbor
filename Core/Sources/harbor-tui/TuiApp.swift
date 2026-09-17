@@ -1,0 +1,837 @@
+import Foundation
+import Darwin
+import HarborCore
+import HarborTUIKit
+
+/// TUI application: owns the core services (same assembly as the GUI's
+/// AppState), routes keys between the three panels and the inline
+/// confirm/command bars, and repaints on a fixed cadence (the diff encoder
+/// makes empty frames nearly free).
+@MainActor
+final class TuiApp {
+    /// Strong reference for the process lifetime — the run loop is callback
+    /// driven, so nothing else keeps the app (and its sources) alive.
+    private(set) static var current: TuiApp?
+
+    let terminal: TerminalController
+    let registry: ProjectRegistry
+    let observer: PortObserver
+    let supervisor: ProcessSupervisor
+    let coordinator: HarborCoordinator
+
+    // MARK: - UI state
+
+    enum Panel { case projects, logs, ports }
+    private var panel: Panel = .projects
+
+    private var projectsSelected: Int? = 0
+    private var projectsTargets: [ProjectsPanel.Target] = []
+
+    private var logs = LogsPanel()
+
+    private var ports = PortsPanel()
+    private var listeningRowCount = 0
+    private var overviewRowCount = 0
+
+    private var currentConflicts: [PortPlanner.RuntimeConflict] = []
+    private var currentHolders: [pid_t: PortPlanner.ManagedHolder] = [:]
+
+    enum Overlay {
+        case confirm(Confirmation)
+        case command(CommandBar)
+        case filter(CommandBar)
+    }
+    private var overlay: Overlay?
+
+    struct Confirmation {
+        enum Action: Equatable {
+            case quit
+            case killListener(Listener)
+            case startProcess(Project, ProcessDefinition, ProcessKey, PortPlanner.RuntimeConflict)
+            case startAllConflicts(Project, [PortPlanner.RuntimeConflict])
+            case removeProject(Project)
+            case addProjectWithOverlaps(URL, [PortPlanner.StaticOverlap])
+            case addMissingConfig(URL, templateSuggestion: Int?, drafts: [ConfigImporter.Draft])
+        }
+
+        let message: String
+        let options: [ConfirmBar.Option]
+        let action: Action
+    }
+
+    private var flash: (text: String, style: Style, until: Date)?
+
+    private var redrawScheduled = false
+    private var repaintTimer: DispatchSourceTimer?
+
+    // MARK: - Lifecycle
+
+    init() throws {
+        terminal = try TerminalController()
+        registry = ProjectRegistry()
+        observer = PortObserver()
+        supervisor = ProcessSupervisor()
+        coordinator = HarborCoordinator(registry: registry, observer: observer, supervisor: supervisor)
+
+        supervisor.portAllocator = { [weak coordinator] _, _ in
+            coordinator?.allocateAutoPort()
+        }
+        supervisor.onAutoRestartGiveUp = { [weak self] _, message in
+            self?.showFlash(message, style: Style(fg: .red))
+        }
+        observer.start(interval: 2.0)
+        Task { await observer.refresh() }
+
+        terminal.onKey = { [weak self] key in
+            Task { @MainActor [weak self] in self?.handle(key) }
+        }
+        terminal.onResize = { [weak self] in
+            Task { @MainActor [weak self] in self?.draw() }
+        }
+        terminal.onTerminate = { [weak self] in
+            Task { @MainActor [weak self] in self?.quitNow() }
+        }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: 0.2)
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in self?.draw() }
+        }
+        timer.resume()
+        repaintTimer = timer
+        Self.current = self // all stored properties set; keep alive for process lifetime
+    }
+
+    // MARK: - Key routing
+
+    private func handle(_ key: Key) {
+        switch overlay {
+        case .confirm(let confirmation):
+            handleConfirm(key, confirmation)
+        case .command(var bar):
+            handleInput(key, bar: &bar, live: nil) { [weak self] input in
+                self?.executeCommand(input)
+            } onCancel: { [weak self] in
+                self?.overlay = nil
+                self?.draw()
+            }
+            if case .command = overlay { overlay = .command(bar) } // write back edits
+        case .filter(var bar):
+            handleInput(key, bar: &bar, live: { [weak self] text in
+                self?.ports.filter = text
+                self?.draw()
+            }) { [weak self] _ in
+                self?.overlay = nil
+                self?.draw()
+            } onCancel: { [weak self] in
+                self?.ports.filter = ""
+                self?.overlay = nil
+                self?.draw()
+            }
+            if case .filter = overlay { overlay = .filter(bar) } // write back edits
+        case .none:
+            handleNormal(key)
+        }
+    }
+
+    private func handleConfirm(_ key: Key, _ confirmation: Confirmation) {
+        let choice: Character?
+        switch key {
+        case .char(let ch): choice = ch
+        case .escape, .ctrl("c"): choice = nil
+        default: return // ignore navigation keys while confirming
+        }
+        if choice == nil || choice == "c" || choice == "n" {
+            if confirmation.action == .quit, choice == "n" {
+                overlay = nil
+                draw()
+            } else if choice == "c" || choice == "n" {
+                overlay = nil
+                draw()
+            } else {
+                overlay = nil
+                quitNow() // Esc / Ctrl+C on a quit prompt quits
+            }
+            return
+        }
+        overlay = nil
+        switch confirmation.action {
+        case .quit:
+            if choice == "q" { quitNow() } else { draw() }
+        case .killListener(let listener):
+            killForeign(listener)
+        case .startProcess(let project, let definition, let key, let conflict):
+            switch choice {
+            case "f":
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.freeConflict(conflict)
+                    self.supervisor.start(key: key, definition: definition, projectRoot: project.root)
+                    self.showFlash("starting \(definition.name)", style: Style(fg: .green))
+                    self.draw()
+                }
+            case "s":
+                supervisor.start(key: key, definition: definition, projectRoot: project.root)
+                showFlash("started \(definition.name) despite conflict", style: Style(fg: .yellow))
+            default: break
+            }
+        case .startAllConflicts(let project, let conflicts):
+            switch choice {
+            case "f":
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    for conflict in conflicts {
+                        await self.freeConflict(conflict)
+                    }
+                    self.startAll(project, force: true)
+                    self.draw()
+                }
+            case "a":
+                startAll(project, force: true)
+            default: break
+            }
+        case .removeProject(let project):
+            if choice == "y" {
+                registry.remove(projectID: project.id)
+                showFlash("removed \(project.name) (files untouched)", style: Style(fg: .green))
+            }
+        case .addProjectWithOverlaps(let root, _):
+            if choice == "a" {
+                performAdd(root: root, createTemplateIfMissing: false, suggestedPort: nil)
+            }
+        case .addMissingConfig(let root, let suggestion, let drafts):
+            if choice == "t" {
+                performAdd(root: root, createTemplateIfMissing: true, suggestedPort: suggestion)
+            } else if let digit = choice?.wholeNumberValue, digit >= 1, digit <= drafts.count {
+                let draft = drafts[digit - 1]
+                let configURL = root.appendingPathComponent(HarborConfigParser.configNames[0])
+                do {
+                    try draft.toml.write(to: configURL, atomically: true, encoding: .utf8)
+                    performAdd(root: root, createTemplateIfMissing: false, suggestedPort: nil)
+                    showFlash("wrote harbor.toml from \(draft.sourceName) — review & edit it", style: Style(fg: .green))
+                } catch {
+                    showFlash("could not write harbor.toml: \(error.localizedDescription)", style: Style(fg: .red))
+                }
+            }
+        }
+        draw()
+    }
+
+    /// Shared input handling for command and filter bars.
+    private func handleInput(_ key: Key, bar: inout CommandBar, live: ((String) -> Void)?,
+                             onEnter: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        switch key {
+        case .char(let ch):
+            bar.insert(ch)
+            live?(bar.input)
+        case .backspace:
+            bar.backspace()
+            live?(bar.input)
+        case .left: bar.moveLeft()
+        case .right: bar.moveRight()
+        case .enter:
+            let input = bar.input
+            onEnter(input)
+            return
+        case .escape, .ctrl("c"):
+            onCancel()
+            return
+        default: return
+        }
+        draw()
+    }
+
+    private func handleNormal(_ key: Key) {
+        switch key {
+        case .char("1"): panel = .projects
+        case .char("2"): panel = .logs
+        case .char("3"): panel = .ports
+        case .tab:
+            panel = panel == .projects ? .logs : (panel == .logs ? .ports : .projects)
+        case .up, .char("k"): move(-1)
+        case .down, .char("j"): move(1)
+        case .pageUp: movePage(-1)
+        case .pageDown: movePage(1)
+        case .home: jump(to: 0)
+        case .end: jump(to: Int.max)
+        case .enter, .char("l"): focusLogs()
+        case .char("s"): startSelection()
+        case .char("S"): startAllSelection()
+        case .char("x"): stopSelection()
+        case .char("X"): stopAllSelection()
+        case .char("r"): restartSelection()
+        case .char("f"):
+            if panel == .logs {
+                if logs.view.follow { logs.view.scrollUp(0) } else { logs.view.toBottom() }
+            }
+        case .char("c"):
+            if panel == .logs, let key = logs.focused {
+                supervisor.logBuffer(for: key).clear()
+            }
+        case .char("m"):
+            if panel == .ports {
+                ports.mineOnly.toggle()
+            }
+        case .char("v"):
+            if panel == .ports {
+                ports.subview = ports.subview == .listening ? .overview : .listening
+            }
+        case .char("/"):
+            if panel == .ports {
+                var bar = CommandBar(prompt: "/")
+                bar.input = ports.filter
+                bar.cursorIndex = bar.input.count
+                overlay = .filter(bar)
+            }
+        case .escape:
+            if panel == .ports, !ports.filter.isEmpty {
+                ports.filter = ""
+            }
+        case .char(":"):
+            overlay = .command(CommandBar())
+        case .char("q"), .ctrl("c"):
+            requestQuit()
+        default:
+            return
+        }
+        draw()
+    }
+
+    // MARK: - Selection movement
+
+    private var selectedRowCount: Int {
+        switch panel {
+        case .projects: return projectsTargets.count
+        case .logs: return 0
+        case .ports: return ports.subview == .listening ? listeningRowCount : overviewRowCount
+        }
+    }
+
+    private func move(_ delta: Int) {
+        let count = selectedRowCount
+        guard count > 0 else { return }
+        switch panel {
+        case .projects:
+            let current = projectsSelected ?? 0
+            projectsSelected = min(max(0, current + delta), count - 1)
+        case .logs:
+            if delta < 0 { logs.view.scrollUp(-delta) } else { logs.view.scrollDown(delta) }
+        case .ports:
+            if ports.subview == .listening {
+                let current = ports.listeningSelection ?? 0
+                ports.listeningSelection = min(max(0, current + delta), count - 1)
+            } else {
+                let current = ports.overviewSelection ?? 0
+                ports.overviewSelection = min(max(0, current + delta), count - 1)
+            }
+        }
+    }
+
+    private func movePage(_ direction: Int) {
+        let pageSize = max(1, (terminal.screen.height - 4))
+        move(direction * pageSize)
+    }
+
+    private func jump(to index: Int) {
+        guard selectedRowCount > 0 else { return }
+        switch panel {
+        case .projects: projectsSelected = min(index, projectsTargets.count - 1)
+        case .logs: break
+        case .ports:
+            if ports.subview == .listening {
+                ports.listeningSelection = min(index, listeningRowCount - 1)
+            } else {
+                ports.overviewSelection = min(index, overviewRowCount - 1)
+            }
+        }
+    }
+
+    // MARK: - Process actions
+
+    private var selectedProject: Project? {
+        guard panel == .projects else { return nil }
+        switch projectsTargets[safe: projectsSelected ?? -1] {
+        case .project(let project): return project
+        case .process(let project, _, _): return project
+        case .none: return nil
+        }
+    }
+
+    private func focusLogs() {
+        guard panel == .projects,
+              case .process(_, let definition, let key) = projectsTargets[safe: projectsSelected ?? -1] else { return }
+        logs.focused = key
+        logs.view.toBottom()
+        panel = .logs
+    }
+
+    private func startSelection() {
+        guard panel == .projects else { return }
+        switch projectsTargets[safe: projectsSelected ?? -1] {
+        case .project(let project):
+            startProjectFlow(project)
+        case .process(let project, let definition, let key):
+            startProcessFlow(project, definition, key)
+        case .none:
+            return
+        }
+    }
+
+    private func startProcessFlow(_ project: Project, _ definition: ProcessDefinition, _ key: ProcessKey) {
+        let status = supervisor.status(for: key)
+        if status.state.isRunningLike {
+            showFlash("\(definition.name) is already running", style: Style(fg: .yellow))
+            return
+        }
+        if let conflict = currentConflicts.first(where: { $0.projectID == project.id && $0.processName == definition.name }) {
+            overlay = .confirm(Confirmation(
+                message: ":\(conflict.port) held by \(conflict.holderLabel) — start \(definition.name)?",
+                options: [
+                    ConfirmBar.Option(key: "f", label: "free port & start"),
+                    ConfirmBar.Option(key: "s", label: "start anyway"),
+                    ConfirmBar.Option(key: "c", label: "cancel"),
+                ],
+                action: .startProcess(project, definition, key, conflict)))
+            return
+        }
+        supervisor.start(key: key, definition: definition, projectRoot: project.root)
+    }
+
+    private func startAllSelection() {
+        guard let project = selectedProject else { return }
+        startProjectFlow(project)
+    }
+
+    private func startProjectFlow(_ project: Project) {
+        let pending = project.processes.filter { definition in
+            let key = ProcessKey(projectID: project.id, processName: definition.name)
+            return !(supervisor.status(for: key).state.isRunningLike)
+        }
+        guard !pending.isEmpty else {
+            showFlash("all processes already running", style: Style(fg: .yellow))
+            return
+        }
+        let pendingNames = Set(pending.map(\.name))
+        let blocked = currentConflicts.filter { $0.projectID == project.id && pendingNames.contains($0.processName ?? "") }
+        if blocked.isEmpty {
+            startAll(project, force: false)
+        } else {
+            let heldPorts = blocked.map { ":\($0.port)" }.joined(separator: ", ")
+            overlay = .confirm(Confirmation(
+                message: "\(heldPorts) held — start all for \(project.name)?",
+                options: [
+                    ConfirmBar.Option(key: "f", label: "free ports & start all"),
+                    ConfirmBar.Option(key: "a", label: "start all anyway"),
+                    ConfirmBar.Option(key: "c", label: "cancel"),
+                ],
+                action: .startAllConflicts(project, blocked)))
+        }
+    }
+
+    /// Starts every not-running process of `project`. Without `force`, blocked
+    /// processes are skipped with a log line (same as the GUI).
+    private func startAll(_ project: Project, force: Bool) {
+        for definition in project.processes {
+            let key = ProcessKey(projectID: project.id, processName: definition.name)
+            guard !supervisor.status(for: key).state.isRunningLike else { continue }
+            if !force, let conflict = currentConflicts.first(where: { $0.projectID == project.id && $0.processName == definition.name }) {
+                supervisor.logBuffer(for: key).appendLine(
+                    "— Harbor: skipped — port \(conflict.port) is held by \(conflict.holderLabel) —")
+                continue
+            }
+            supervisor.start(key: key, definition: definition, projectRoot: project.root)
+        }
+    }
+
+    private func stopSelection() {
+        switch panel {
+        case .projects:
+            switch projectsTargets[safe: projectsSelected ?? -1] {
+            case .project(let project):
+                stopProject(project)
+            case .process(_, _, let key):
+                Task { @MainActor [weak self] in await self?.supervisor.stop(key: key) }
+            case .none:
+                return
+            }
+        case .ports:
+            killSelection()
+        case .logs:
+            break
+        }
+    }
+
+    private func stopAllSelection() {
+        guard let project = selectedProject else { return }
+        stopProject(project)
+    }
+
+    private func stopProject(_ project: Project) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for definition in project.processes {
+                let key = ProcessKey(projectID: project.id, processName: definition.name)
+                if self.supervisor.status(for: key).state.isRunningLike {
+                    await self.supervisor.stop(key: key)
+                }
+            }
+        }
+    }
+
+    private func restartSelection() {
+        guard panel == .projects,
+              case .process(let project, _, let key) = projectsTargets[safe: projectsSelected ?? -1] else { return }
+        Task { @MainActor [weak self] in
+            await self?.supervisor.restart(key: key, projectRoot: project.root)
+        }
+    }
+
+    private func freeConflict(_ conflict: PortPlanner.RuntimeConflict) async {
+        if let holder = conflict.managedHolder {
+            await supervisor.stop(key: ProcessKey(projectID: holder.projectID, processName: holder.processName))
+            showFlash("stopped \(holder.projectName)/\(holder.processName) to free :\(conflict.port)", style: Style(fg: .yellow))
+        } else {
+            let result = await ProcessKiller.terminateTree(rootPID: conflict.listener.pid, grace: 2.0)
+            switch result {
+            case .success:
+                showFlash("freed :\(conflict.port) (killed PID \(conflict.listener.pid))", style: Style(fg: .green))
+            case .failure(let error):
+                showFlash(error.message, style: Style(fg: .red))
+            }
+        }
+        // Give the port a beat to actually be released.
+        try? await Task.sleep(nanoseconds: 300_000_000)
+    }
+
+    // MARK: - Ports / killing
+
+    private func killSelection() {
+        let listener: Listener?
+        if ports.subview == .listening {
+            listener = visibleListeners[safe: ports.listeningSelection ?? -1]
+        } else {
+            listener = overviewRows[safe: ports.overviewSelection ?? -1]?.listener
+        }
+        guard let listener else { return }
+        if let holder = currentHolders[listener.pid] {
+            showFlash("stopping managed \(holder.projectName)/\(holder.processName)…", style: Style(fg: .yellow))
+            Task { @MainActor [weak self] in
+                await self?.supervisor.stop(key: ProcessKey(projectID: holder.projectID, processName: holder.processName))
+            }
+            return
+        }
+        overlay = .confirm(Confirmation(
+            message: "kill PID \(listener.pid) (\(listener.processName))? SIGTERM → ~2s → SIGKILL",
+            options: [
+                ConfirmBar.Option(key: "y", label: "kill"),
+                ConfirmBar.Option(key: "n", label: "cancel"),
+            ],
+            action: .killListener(listener)))
+    }
+
+    private func killForeign(_ listener: Listener) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await ProcessKiller.terminateTree(rootPID: listener.pid, grace: 2.0)
+            switch result {
+            case .success:
+                self.showFlash("killed PID \(listener.pid)", style: Style(fg: .green))
+            case .failure(let error):
+                self.showFlash(error.message, style: Style(fg: .red))
+            }
+            self.draw()
+        }
+    }
+
+    // MARK: - Registry commands
+
+    private func executeCommand(_ input: String) {
+        overlay = nil
+        let parts = input.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard !parts.isEmpty else { draw(); return }
+        switch parts[0].lowercased() {
+        case "add":
+            guard parts.count >= 2 else {
+                showFlash("usage: :add <path>", style: Style(fg: .yellow))
+                draw()
+                return
+            }
+            addFlow(path: parts[1])
+        case "remove":
+            let project: Project?
+            if parts.count >= 2 {
+                let name = parts[1]
+                project = registry.projects.first { $0.name == name || $0.root.lastPathComponent == name }
+                if project == nil {
+                    showFlash("no project named \(name)", style: Style(fg: .red))
+                    break
+                }
+            } else {
+                project = selectedProject
+            }
+            if let project {
+                overlay = .confirm(Confirmation(
+                    message: "remove \(project.name) from Harbor? (files untouched)",
+                    options: [ConfirmBar.Option(key: "y", label: "remove"), ConfirmBar.Option(key: "n", label: "cancel")],
+                    action: .removeProject(project)))
+            }
+        case "refresh":
+            registry.reloadAll()
+            Task { await observer.refresh() }
+            showFlash("refreshed", style: Style(fg: .green))
+        case "q", "quit":
+            requestQuit()
+        default:
+            showFlash("unknown command: \(parts[0]) (try add/remove/refresh/q)", style: Style(fg: .yellow))
+        }
+        draw()
+    }
+
+    private func addFlow(path: String) {
+        let expanded = (path as NSString).expandingTildeInPath
+        let root = URL(fileURLWithPath: expanded)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            showFlash("not a folder: \(path)", style: Style(fg: .red))
+            return
+        }
+        if HarborConfigParser.locateConfig(in: root) != nil {
+            let overlaps = overlapsWhenAdding(root: root)
+            if overlaps.isEmpty {
+                performAdd(root: root, createTemplateIfMissing: false, suggestedPort: nil)
+            } else {
+                let ports = overlaps.map { String($0.port) }.joined(separator: ", ")
+                let also = overlaps.flatMap(\.projects).joined(separator: ", ")
+                overlay = .confirm(Confirmation(
+                    message: "port(s) \(ports) also claimed by \(also) — add anyway?",
+                    options: [ConfirmBar.Option(key: "a", label: "add anyway"), ConfirmBar.Option(key: "c", label: "cancel")],
+                    action: .addProjectWithOverlaps(root, overlaps)))
+            }
+            return
+        }
+        let drafts = ConfigImporter.drafts(in: root)
+        let suggestion = coordinator.suggestedFreePorts(count: 1).first
+        var options = [ConfirmBar.Option(key: "t", label: "create template" + (suggestion.map { " (port \($0))" } ?? ""))]
+        for (index, draft) in drafts.prefix(4).enumerated() {
+            options.append(ConfirmBar.Option(key: Character("\(index + 1)"), label: "import \(draft.sourceName)"))
+        }
+        options.append(ConfirmBar.Option(key: "c", label: "cancel"))
+        overlay = .confirm(Confirmation(
+            message: "no harbor.toml in \(root.lastPathComponent)" + (suggestion.map { " — free port: \($0)" } ?? ""),
+            options: options,
+            action: .addMissingConfig(root, templateSuggestion: suggestion, drafts: Array(drafts))))
+    }
+
+    private func performAdd(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int?) {
+        switch registry.add(root: root, createTemplateIfMissing: createTemplateIfMissing, suggestedPort: suggestedPort) {
+        case .success(let project):
+            showFlash("added \(project.name)", style: Style(fg: .green))
+        case .failure(let error):
+            showFlash(error.localizedDescription, style: Style(fg: .red))
+        }
+    }
+
+    private func overlapsWhenAdding(root: URL) -> [PortPlanner.StaticOverlap] {
+        guard case .success(let parsed) = HarborConfigParser.parse(root: root) else { return [] }
+        let candidate = Project(root: root, name: parsed.name, processes: parsed.processes,
+                                portClaims: parsed.portClaims,
+                                openProcessName: parsed.openProcessName, openURL: parsed.openURL,
+                                configFileName: parsed.configName, configError: nil)
+        let candidatePorts = candidate.claimedPorts
+        return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
+            .filter { candidatePorts.contains($0.port) }
+    }
+
+    // MARK: - Quit
+
+    private func requestQuit() {
+        if supervisor.runningCount() > 0 {
+            overlay = .confirm(Confirmation(
+                message: "stop all managed processes and quit?",
+                options: [ConfirmBar.Option(key: "q", label: "stop all & quit"), ConfirmBar.Option(key: "n", label: "stay")],
+                action: .quit))
+            draw()
+        } else {
+            quitNow()
+        }
+    }
+
+    private func quitNow() {
+        terminal.shutdown()
+        supervisor.emergencyStopAll()
+        exit(0)
+    }
+
+    // MARK: - Flash messages
+
+    private func showFlash(_ text: String, style: Style) {
+        flash = (text, style, Date().addingTimeInterval(4))
+    }
+
+    // MARK: - Drawing
+
+    private var visibleListeners: [Listener] = []
+    private var overviewRows: [HarborCoordinator.OverviewRow] = []
+
+    private func draw() {
+        if let flash, Date() > flash.until { self.flash = nil }
+
+        var screen = terminal.screen
+        screen.clear()
+        let width = screen.width
+        let height = screen.height
+        guard width >= 24, height >= 6 else {
+            terminal.present()
+            return
+        }
+
+        // Shared per-frame data (one process-table walk).
+        let parents = coordinator.processTableParents()
+        let listeners = observer.listeners
+        currentHolders = [:]
+        for listener in listeners {
+            if let holder = coordinator.managedHolder(forPID: listener.pid, parents: parents) {
+                currentHolders[listener.pid] = holder
+            }
+        }
+        currentConflicts = PortPlanner.runtimeConflicts(projects: registry.projects,
+                                                        listeners: listeners,
+                                                        managedHolder: { currentHolders[$0] })
+        var conflictsByProcess: [String: PortPlanner.RuntimeConflict] = [:]
+        for conflict in currentConflicts {
+            if let name = conflict.processName { conflictsByProcess[name] = conflict }
+        }
+        let processTable = parents.map { (pid: $0.key, ppid: $0.value) }
+        var verifications: [ProcessKey: PortVerification] = [:]
+        for project in registry.projects {
+            for definition in project.processes {
+                let key = ProcessKey(projectID: project.id, processName: definition.name)
+                if let verification = PortPlanner.portVerification(status: supervisor.status(for: key),
+                                                                   definitionPort: definition.port,
+                                                                   listeners: listeners,
+                                                                   processTable: processTable) {
+                    verifications[key] = verification
+                }
+            }
+        }
+
+        // Top bar.
+        let running = supervisor.runningCount()
+        var top = "harbor — \(registry.projects.count) projects · \(running) running"
+        if !currentConflicts.isEmpty { top += " · \(currentConflicts.count) port conflicts" }
+        let overlaps = PortPlanner.staticOverlaps(projects: registry.projects)
+        if !overlaps.isEmpty { top += " · \(overlaps.count) static overlaps" }
+        screen.fillRow(0, style: Style(reverse: true), text: truncatedToWidth(top, width))
+
+        // Panel area.
+        let area = Rect(x: 0, y: 1, width: width, height: height - 3)
+        switch panel {
+        case .projects:
+            let (table, targets) = ProjectsPanel.build(projects: registry.projects,
+                                                       statuses: supervisor.statuses,
+                                                       conflictsByProcess: conflictsByProcess,
+                                                       verifications: verifications,
+                                                       selected: projectsSelected,
+                                                       visibleRows: area.height - 1)
+            projectsTargets = targets
+            projectsSelected = table.selectedRow
+            table.render(into: &screen, rect: area)
+        case .logs:
+            let lines = logs.focused.map { supervisor.logBuffer(for: $0).snapshot() } ?? []
+            logs.refresh(lines: lines)
+            logs.render(into: &screen, rect: area, label: logsLabel())
+        case .ports:
+            drawPorts(into: &screen, area: area, listeners: listeners, holders: currentHolders, overlaps: overlaps)
+        }
+
+        // Bottom bars.
+        let barY = height - 2
+        screen.fillRow(barY, style: .plain)
+        switch overlay {
+        case .confirm(let confirmation):
+            ConfirmBar(message: confirmation.message, options: confirmation.options).render(into: &screen, y: barY)
+        case .command(let bar):
+            bar.render(into: &screen, y: barY)
+        case .filter(let bar):
+            bar.render(into: &screen, y: barY)
+        case .none:
+            if let flash {
+                screen.drawString(truncatedToWidth(flash.text, width), x: 0, y: barY, style: flash.style)
+            } else {
+                screen.drawString(truncatedToWidth(hintText(), width), x: 0, y: barY, style: Style(fg: .brightBlack))
+            }
+        }
+        StatusBar(left: panelName(), right: "harbor-tui \(harborVersion)  [1/2/3] panels  [q] quit").render(into: &screen, y: height - 1)
+
+        terminal.screen = screen
+        terminal.present()
+    }
+
+    private func drawPorts(into screen: inout Screen, area: Rect, listeners: [Listener],
+                           holders: [pid_t: PortPlanner.ManagedHolder],
+                           overlaps: [PortPlanner.StaticOverlap]) {
+        guard area.height >= 2 else { return }
+        let headerRect = Rect(x: area.x, y: area.y, width: area.width, height: 1)
+        let tableRect = Rect(x: area.x, y: area.y + 1, width: area.width, height: area.height - 1)
+        if ports.subview == .listening {
+            visibleListeners = listeners.filter { PortsPanel.matches($0, filter: ports.filter, mineOnly: ports.mineOnly) }
+            listeningRowCount = visibleListeners.count
+            let header = "listening ports — [v] overview  [m] mine-only: \(ports.mineOnly ? "on" : "off")  [/] filter: \(ports.filter.isEmpty ? "-" : ports.filter)"
+            screen.drawString(truncatedToWidth(header, headerRect.width), x: headerRect.x, y: headerRect.y, style: Style(fg: .brightBlack))
+            var table = PortsPanel.listeningTable(listeners: listeners,
+                                                  holdersByPID: holders,
+                                                  filter: ports.filter,
+                                                  mineOnly: ports.mineOnly,
+                                                  selected: ports.listeningSelection)
+            table.ensureVisible(visibleRows: max(1, tableRect.height))
+            ports.listeningSelection = table.selectedRow
+            table.render(into: &screen, rect: tableRect)
+        } else {
+            overviewRows = HarborCoordinator.overviewRows(projects: registry.projects,
+                                                          listeners: listeners,
+                                                          holdersByPID: holders,
+                                                          assignedPorts: coordinator.assignedPortsByKey())
+            overviewRowCount = overviewRows.count
+            let overlapPorts = Set(overlaps.map(\.port))
+            let header = "ports overview — [v] listening · ⚠ = static overlap"
+            screen.drawString(truncatedToWidth(header, headerRect.width), x: headerRect.x, y: headerRect.y, style: Style(fg: .brightBlack))
+            var table = PortsPanel.overviewTable(rows: overviewRows, overlapPorts: overlapPorts, selected: ports.overviewSelection)
+            table.ensureVisible(visibleRows: max(1, tableRect.height))
+            ports.overviewSelection = table.selectedRow
+            table.render(into: &screen, rect: tableRect)
+        }
+    }
+
+    private func logsLabel() -> String {
+        guard let key = logs.focused else { return "no process selected — press Enter on a process in Projects" }
+        let projectName = registry.projects.first { $0.id == key.projectID }?.name ?? key.projectID
+        return "\(projectName) / \(key.processName)"
+    }
+
+    private func panelName() -> String {
+        switch panel {
+        case .projects: return "projects"
+        case .logs: return "logs"
+        case .ports: return ports.subview == .listening ? "ports — listening" : "ports — overview"
+        }
+    }
+
+    private func hintText() -> String {
+        switch panel {
+        case .projects:
+            return "⏎ logs · s start · S start all · x stop · X stop all · r restart · : add/remove/refresh"
+        case .logs:
+            return "f follow · c clear · j/k scroll · PgUp/PgDn page"
+        case .ports:
+            return ports.subview == .listening
+                ? "v overview · m mine-only · / filter · x kill"
+                : "v listening · x kill holder"
+        }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
