@@ -35,9 +35,68 @@ func statusText(_ status: ProcessStatus) -> String {
         if status.ready == true { return "running (ready)" }
         if status.ready == false { return "running (not ready)" }
         return "running"
+    case .failed:
+        if let code = status.exitCode { return "failed (exit \(code))" }
+        return "failed"
     default:
         return status.state.rawValue
     }
+}
+
+func livePort(for definition: ProcessDefinition, status: ProcessStatus) -> Int? {
+    status.assignedPort ?? definition.port
+}
+
+/// Browser URL for one process: `ready_url` when set, else `http://127.0.0.1:<port>/`.
+func browserURL(for definition: ProcessDefinition, status: ProcessStatus) -> URL? {
+    if let readyURL = definition.readyURL(port: livePort(for: definition, status: status)) {
+        return readyURL
+    }
+    if let port = livePort(for: definition, status: status) {
+        return URL(string: "http://127.0.0.1:\(port)/")
+    }
+    return nil
+}
+
+/// Project-level browser URL from `open_url` or `open_process` in harbor.toml.
+func browserURL(for project: Project, status: (ProcessKey) -> ProcessStatus) -> URL? {
+    if let openURL = project.openURL { return openURL }
+    guard let processName = project.openProcessName,
+          let definition = project.processes.first(where: { $0.name == processName }) else {
+        return nil
+    }
+    let key = ProcessKey(projectID: project.id, processName: processName)
+    return browserURL(for: definition, status: status(key))
+}
+
+/// Compact port suffix for inline labels (`:8000`, `:auto`).
+func portLabel(for definition: ProcessDefinition, status: ProcessStatus) -> String? {
+    if definition.autoPort {
+        if let assigned = status.assignedPort { return ":\(assigned)" }
+        return ":auto"
+    }
+    if let port = definition.port { return ":\(port)" }
+    return nil
+}
+
+/// Full tooltip for a managed process row (status, port, PID, port mismatch).
+func processStatusHelp(definition: ProcessDefinition,
+                       status: ProcessStatus,
+                       verification: PortVerification? = nil) -> String {
+    var parts = [statusText(status)]
+    if let port = livePort(for: definition, status: status) {
+        parts.append("port \(port)")
+    } else if definition.autoPort {
+        parts.append("port auto (assigned at start)")
+    }
+    if let pid = status.pid {
+        parts.append("PID \(pid)")
+    }
+    if let verification {
+        let observed = verification.observed.sorted().map(String.init).joined(separator: ", ")
+        parts.append("listening on \(observed), expected \(verification.expected)")
+    }
+    return parts.joined(separator: " · ")
 }
 
 enum Pasteboard {

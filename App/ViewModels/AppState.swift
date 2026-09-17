@@ -195,6 +195,7 @@ final class AppState: ObservableObject {
         guard case .success(let parsed) = HarborConfigParser.parse(root: root) else { return [] }
         let candidate = Project(root: root, name: parsed.name, processes: parsed.processes,
                                 portClaims: parsed.portClaims,
+                                openProcessName: parsed.openProcessName, openURL: parsed.openURL,
                                 configFileName: parsed.configName, configError: nil)
         let candidatePorts = candidate.claimedPorts
         return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
@@ -208,6 +209,7 @@ final class AppState: ObservableObject {
         guard let parsed = try? HarborConfigParser.parse(text: text) else { return [] }
         let candidate = Project(root: URL(fileURLWithPath: "/harbor-draft"), name: parsed.name ?? "draft",
                                 processes: parsed.processes, portClaims: parsed.portClaims,
+                                openProcessName: parsed.openProcessName, openURL: parsed.openURL,
                                 configFileName: nil, configError: nil)
         let candidatePorts = candidate.claimedPorts
         return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
@@ -365,6 +367,15 @@ final class AppState: ObservableObject {
         for definition in project.processes {
             stop(project: project, definition: definition)
         }
+    }
+
+    func openProjectInBrowser(_ project: Project) {
+        guard let url = browserURL(for: project, status: { supervisor.status(for: $0) }) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func projectBrowserURL(_ project: Project) -> URL? {
+        browserURL(for: project, status: { supervisor.status(for: $0) })
     }
 
     // MARK: - Kill by port

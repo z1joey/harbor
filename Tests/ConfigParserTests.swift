@@ -288,4 +288,53 @@ final class ConfigParserTests: XCTestCase {
         port_env = "bad-name"
         """))
     }
+
+    // MARK: - open_process / open_url
+
+    func testParsesOpenProcess() throws {
+        let parsed = try HarborConfigParser.parse(text: """
+        open_process = "web"
+        [[process]]
+        name = "api"
+        command = "run api"
+        port = 8000
+        [[process]]
+        name = "web"
+        command = "npm run dev"
+        port = 8080
+        ready_url = "http://127.0.0.1:8080/"
+        """)
+        XCTAssertEqual(parsed.openProcessName, "web")
+        XCTAssertNil(parsed.openURL)
+    }
+
+    func testParsesOpenURL() throws {
+        let parsed = try HarborConfigParser.parse(text: """
+        open_url = "http://127.0.0.1:3000/"
+        [[process]]
+        name = "web"
+        command = "npm run dev"
+        """)
+        XCTAssertNil(parsed.openProcessName)
+        XCTAssertEqual(parsed.openURL?.absoluteString, "http://127.0.0.1:3000/")
+    }
+
+    func testOpenProcessForUnknownProcessIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        open_process = "missing"
+        [[process]]
+        name = "api"
+        command = "run"
+        """))
+    }
+
+    func testOpenProcessAndOpenURLTogetherAreRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        open_process = "web"
+        open_url = "http://127.0.0.1:8080/"
+        [[process]]
+        name = "web"
+        command = "npm run dev"
+        """))
+    }
 }

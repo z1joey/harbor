@@ -160,6 +160,7 @@ struct MenuBarPopoverView: View {
 
     @ViewBuilder
     private func projectRow(_ project: Project) -> some View {
+        let verifications = appState.portVerifications(for: project)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(project.name)
@@ -173,6 +174,15 @@ struct MenuBarPopoverView: View {
                         .help("Port \(conflict.port) is in use by \(conflict.holderLabel) (PID \(conflict.listener.pid))")
                 }
                 Spacer()
+                if let browserURL = appState.projectBrowserURL(project) {
+                    Button {
+                        appState.openProjectInBrowser(project)
+                    } label: {
+                        Image(systemName: "safari")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open \(browserURL.absoluteString)")
+                }
                 Button {
                     appState.startProjectWithConfirmation(project)
                 } label: {
@@ -196,12 +206,9 @@ struct MenuBarPopoverView: View {
             }
             HStack(spacing: 10) {
                 ForEach(project.processes) { definition in
-                    HStack(spacing: 3) {
-                        Circle()
-                            .fill(statusColor(appState.supervisor.status(for: ProcessKey(projectID: project.id, processName: definition.name)).state))
-                            .frame(width: 7, height: 7)
-                        Text(definition.name).font(.caption).lineLimit(1)
-                    }
+                    processChip(project: project,
+                                definition: definition,
+                                verification: verifications[definition.name])
                 }
             }
             if let error = project.configError {
@@ -212,6 +219,28 @@ struct MenuBarPopoverView: View {
             }
         }
         .padding(.vertical, 1)
+    }
+
+    @ViewBuilder
+    private func processChip(project: Project,
+                           definition: ProcessDefinition,
+                           verification: PortVerification?) -> some View {
+        let key = ProcessKey(projectID: project.id, processName: definition.name)
+        let status = appState.supervisor.status(for: key)
+        HStack(spacing: 3) {
+            Circle()
+                .fill(statusColor(status.state))
+                .frame(width: 7, height: 7)
+            Text(definition.name)
+                .font(.caption)
+                .lineLimit(1)
+            if let portText = portLabel(for: definition, status: status) {
+                Text(portText)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .help(processStatusHelp(definition: definition, status: status, verification: verification))
     }
 
     // MARK: - Ports

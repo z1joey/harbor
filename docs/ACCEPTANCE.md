@@ -56,7 +56,7 @@ steps at the bottom.
 ## Task 4 — Polish (M3)
 
 - [x] AC4.1 With `ready_url` pointing at a slow-starting server, UI shows not-ready until the URL succeeds, then ready. *(Probe verified in harness — returns true once HTTP 2xx/3xx, false on timeout; the ready badge display is manual step M7.)*
-- [ ] AC4.2 “Open in Browser” opens the correct URL. (Manual step M7; `NSWorkspace.open` on `ready_url`, else `http://127.0.0.1:<port>`.)
+- [ ] AC4.2 “Open in Browser” opens the correct URL. (Manual step M7; per-process: `ready_url`, else `http://127.0.0.1:<port>/`. Project-level: `open_process` or `open_url` in harbor.toml — menubar safari button and detail header.)
 - [x] AC4.3 `auto_restart = true`: killing the child externally causes Harbor to bring it back; user Stop does not auto-restart. *(service harness: both directions verified with 1s backoff)*
 - [x] AC4.4 Procfile/`package.json` import produces a reviewable `harbor.toml` draft the user can save. *(service harness: drafts generated and round-trip through the parser; hooks skipped; the review sheet is manual step M8.)*
 - [ ] AC4.5 Launch at Login toggle survives app restart and matches System Settings behavior. (Manual step M9 — requires registering a real login item; `SMAppService` code fails soft with a readable error.)
@@ -118,7 +118,9 @@ Launch a freshly built app:
   names the foreign PID; Cancel prevents start; "Start anyway" proceeds.
 - **M7 (AC4.1/4.2):** Start the `server` process → it shows
   "running (not ready)" then "ready" once python answers; "Open in Browser"
-  opens `http://127.0.0.1:8123/`.
+  in the log pane opens `http://127.0.0.1:8123/`. Add `open_process = "server"`
+  (or `open_url`) to a project → menubar safari icon and detail "Open in Browser"
+  open the same URL.
 - **M8 (AC4.4):** Create a folder with a `Procfile` (`web: python3 -m
   http.server 8081`) → Add Project → "Import from Procfile…" → editable draft
   → "Save harbor.toml & Add" → project appears with a `web` process.

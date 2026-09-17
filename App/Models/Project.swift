@@ -7,6 +7,10 @@ struct Project: Identifiable, Hashable {
     let name: String
     let processes: [ProcessDefinition]
     let portClaims: [PortClaim]
+    /// Process name from `open_process` — used by "Open in Browser" at project level.
+    let openProcessName: String?
+    /// Static URL from `open_url` — used when set instead of `open_process`.
+    let openURL: URL?
     let configFileName: String?
     let configError: String?
 

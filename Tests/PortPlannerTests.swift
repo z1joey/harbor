@@ -19,6 +19,7 @@ final class PortPlannerTests: XCTestCase {
             .sorted { $0.name < $1.name }
         return Project(root: URL(fileURLWithPath: "/tmp/\(name)"), name: name,
                        processes: processes, portClaims: claims,
+                       openProcessName: nil, openURL: nil,
                        configFileName: "harbor.toml", configError: nil)
     }
 

@@ -62,10 +62,12 @@ final class ProjectRegistry: ObservableObject {
         case .success(let parsed):
             return Project(root: root, name: parsed.name, processes: parsed.processes,
                            portClaims: parsed.portClaims,
+                           openProcessName: parsed.openProcessName, openURL: parsed.openURL,
                            configFileName: parsed.configName, configError: nil)
         case .failure(let error):
             return Project(root: root, name: root.lastPathComponent, processes: [],
                            portClaims: [],
+                           openProcessName: nil, openURL: nil,
                            configFileName: HarborConfigParser.locateConfig(in: root)?.lastPathComponent,
                            configError: error.localizedDescription)
         }

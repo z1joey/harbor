@@ -51,6 +51,9 @@ struct ProjectDetailView: View {
                 )
             }
             Spacer()
+            if appState.projectBrowserURL(project) != nil {
+                Button("Open in Browser") { appState.openProjectInBrowser(project) }
+            }
             Button("Start All") { appState.startProjectWithConfirmation(project) }
                 .disabled(project.processes.isEmpty)
             Button("Stop All") { appState.stopProject(project) }
@@ -298,10 +301,6 @@ struct ProjectDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(10)
         }
-    }
-
-    private func livePort(for definition: ProcessDefinition, status: ProcessStatus) -> Int? {
-        status.assignedPort ?? definition.port
     }
 
     // MARK: - Import

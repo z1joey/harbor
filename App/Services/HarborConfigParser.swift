@@ -6,6 +6,8 @@ struct ParsedProjectConfig {
     var configName: String
     var processes: [ProcessDefinition]
     var portClaims: [PortClaim]
+    var openProcessName: String?
+    var openURL: URL?
 }
 
 enum HarborConfigError: LocalizedError {
@@ -46,14 +48,17 @@ enum HarborConfigParser {
             let parsed = try parse(text: text)
             let name = parsed.name?.isEmpty == false ? parsed.name! : root.lastPathComponent
             return .success(ParsedProjectConfig(name: name, configName: configURL.lastPathComponent,
-                                                processes: parsed.processes, portClaims: parsed.portClaims))
+                                                processes: parsed.processes, portClaims: parsed.portClaims,
+                                                openProcessName: parsed.openProcessName,
+                                                openURL: parsed.openURL))
         } catch {
             return .failure(error)
         }
     }
 
     /// Throws `HarborConfigError` with a user-readable message on any problem.
-    static func parse(text: String) throws -> (name: String?, processes: [ProcessDefinition], portClaims: [PortClaim]) {
+    static func parse(text: String) throws -> (name: String?, processes: [ProcessDefinition], portClaims: [PortClaim],
+                                               openProcessName: String?, openURL: URL?) {
         let table: TOMLTable
         do {
             table = try TOMLTable(string: text)
@@ -67,7 +72,8 @@ enum HarborConfigParser {
             if table["process"] != nil {
                 throw HarborConfigError.invalid("\"process\" must be a list of tables ([[process]]).")
             }
-            return (name, [], try parsePortClaims(table: table, processes: []))
+            let open = try parseOpenBrowser(table: table, processNames: [])
+            return (name, [], try parsePortClaims(table: table, processes: []), open.openProcessName, open.openURL)
         }
 
         var processes: [ProcessDefinition] = []
@@ -157,7 +163,43 @@ enum HarborConfigParser {
                 env: env
             ))
         }
-        return (name, processes, try parsePortClaims(table: table, processes: processes))
+        let open = try parseOpenBrowser(table: table, processNames: Set(processes.map(\.name)))
+        return (name, processes, try parsePortClaims(table: table, processes: processes),
+                open.openProcessName, open.openURL)
+    }
+
+    private static func parseOpenBrowser(table: TOMLTable,
+                                         processNames: Set<String>) throws -> (openProcessName: String?, openURL: URL?) {
+        let hasOpenProcess = table["open_process"] != nil
+        let hasOpenURL = table["open_url"] != nil
+        if hasOpenProcess && hasOpenURL {
+            throw HarborConfigError.invalid("Use either open_process or open_url, not both.")
+        }
+        if let openProcess = table["open_process"]?.string {
+            guard !openProcess.isEmpty else {
+                throw HarborConfigError.invalid("open_process must be a non-empty string.")
+            }
+            guard processNames.contains(openProcess) else {
+                throw HarborConfigError.invalid("open_process \"\(openProcess)\" is not defined in this config.")
+            }
+            return (openProcess, nil)
+        }
+        if table["open_process"] != nil {
+            throw HarborConfigError.invalid("open_process must be a string.")
+        }
+        if let openURLString = table["open_url"]?.string {
+            guard !openURLString.isEmpty else {
+                throw HarborConfigError.invalid("open_url must be a non-empty string.")
+            }
+            guard let url = URL(string: openURLString), url.scheme != nil else {
+                throw HarborConfigError.invalid("open_url \"\(openURLString)\" is not a valid URL.")
+            }
+            return (nil, url)
+        }
+        if table["open_url"] != nil {
+            throw HarborConfigError.invalid("open_url must be a string.")
+        }
+        return (nil, nil)
     }
 
     /// Parses `[[port_claim]]` entries: ports the project relies on without a
@@ -222,6 +264,9 @@ enum HarborConfigParser {
         # port = 5432
         # note = "postgres"
         # process = "dev"              # optional, must match a [[process]] name above
+
+        # open_process = "dev"         # optional; "Open in Browser" opens this process (ready_url or :port)
+        # open_url = "http://127.0.0.1:8080/"  # optional static URL; use open_process when port = "auto"
         """
     }
 
