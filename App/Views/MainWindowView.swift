@@ -11,7 +11,6 @@ struct MainWindowView: View {
     }
 
     @State private var selection: SidebarItem? = .ports
-    @State private var showAddSheet = false
 
     var body: some View {
         NavigationSplitView {
@@ -23,7 +22,7 @@ struct MainWindowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar { toolbarContent }
-        .sheet(isPresented: $showAddSheet) {
+        .sheet(isPresented: addProjectSheetBinding) {
             AddProjectSheet()
                 .environmentObject(appState)
         }
@@ -65,22 +64,6 @@ struct MainWindowView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Button {
-                showAddSheet = true
-            } label: {
-                Label("Add Project…", systemImage: "plus")
-            }
-            .help("Add a project folder")
-        }
-        if case .project(let id) = selection,
-           let project = appState.registry.projects.first(where: { $0.id == id }) {
-            ToolbarItem {
-                Button("Remove Project", role: .destructive) {
-                    appState.requestRemoveProject(project)
-                }
-            }
-        }
         ToolbarItem {
             settingsMenu
         }
@@ -124,6 +107,13 @@ struct MainWindowView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var addProjectSheetBinding: Binding<Bool> {
+        Binding(
+            get: { appState.showAddProjectSheet },
+            set: { appState.showAddProjectSheet = $0 }
+        )
     }
 
     private var launchAtLoginBinding: Binding<Bool> {

@@ -46,7 +46,7 @@ list with kill, and "Open Harbor…" for the full main window (sidebar:
 ## Registering a project
 
 Each project is a folder containing `harbor.toml` (or `.harbor.toml`). Use
-**Add Project…** in the main window toolbar: pick a folder; if it has no
+**Project → Add Project…** (⌘N) in the menu bar: pick a folder; if it has no
 config, Harbor offers to create a template, or to import a draft from a
 `Procfile` / `package.json` (which you review before it's written). The list
 of registered project roots lives at

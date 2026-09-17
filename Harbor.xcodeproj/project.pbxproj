@@ -41,6 +41,7 @@
 		829E4136C74F558EDCE1F37F /* ProjectsSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D180B88B23FF0570BE498A38 /* ProjectsSidebarView.swift */; };
 		8557CE63A5EDF65E7A28FEB3 /* ProjectConflictDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB56E0976E879E0757E7D567 /* ProjectConflictDialogs.swift */; };
 		87EEC44DAC9DD44F477400FB /* ProjectRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34179FC9346C4DFB4E918F86 /* ProjectRegistry.swift */; };
+		886AEB8DD915C21A0348EF1E /* HarborCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050854E067A31008516889D8 /* HarborCommands.swift */; };
 		A3F183419EF33919FA9B0BC0 /* ProcessDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3D5BB97A8244ADDFE5A3D3 /* ProcessDefinition.swift */; };
 		A8A7257B7E4F68A86E465979 /* TOMLKit in Frameworks */ = {isa = PBXBuildFile; productRef = FB298BA968451AE898384114 /* TOMLKit */; };
 		AC83B9084CED0A4CC056BD58 /* PortObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE1B14E33620B8B15B86C1D /* PortObserverTests.swift */; };
@@ -69,6 +70,7 @@
 /* Begin PBXFileReference section */
 		00C14BC4A47C120E7C45D0FF /* ProcessSupervisorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSupervisorTests.swift; sourceTree = "<group>"; };
 		013ED848CDB4FE949F6A3CA3 /* Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support.swift; sourceTree = "<group>"; };
+		050854E067A31008516889D8 /* HarborCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborCommands.swift; sourceTree = "<group>"; };
 		0A333A2E7B418CE3EE761458 /* ProcessKillerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessKillerTests.swift; sourceTree = "<group>"; };
 		11169C7B50561A0FEA95B04E /* ProjectRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectRegistryTests.swift; sourceTree = "<group>"; };
 		1B3BB63CADE100ED5B2F71AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -208,6 +210,7 @@
 				A2FACBE273FB9A99D8C72FFA /* Ports */,
 				E29999985FEAF84EF572A2FF /* Projects */,
 				398F0A1C74D4C354D41533F2 /* HarborApp.swift */,
+				050854E067A31008516889D8 /* HarborCommands.swift */,
 				387E1E73EE608A153ABADF72 /* MainWindowView.swift */,
 				B7A0F9459D865D18841BD61D /* MenuBarPopoverView.swift */,
 				013ED848CDB4FE949F6A3CA3 /* Support.swift */,
@@ -373,6 +376,7 @@
 				3E7A9A19BBB2F5E72447FAC2 /* AppState.swift in Sources */,
 				EBB0C0C9541591F0379FD815 /* ConfigImporter.swift in Sources */,
 				CF8ADA63F37E0D0163B4501E /* HarborApp.swift in Sources */,
+				886AEB8DD915C21A0348EF1E /* HarborCommands.swift in Sources */,
 				E78B10874DAC38BBC8CDFCBA /* HarborConfigParser.swift in Sources */,
 				62F9F5FF57BAD763CDAC7529 /* HarborError.swift in Sources */,
 				3CB77746B888EFAB8FEC02C6 /* HealthProbe.swift in Sources */,
@@ -462,7 +466,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -525,7 +529,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -23,6 +23,8 @@ final class AppState: ObservableObject {
     /// Whether the main window is open. The menubar popover only offers its
     /// port filter while the full window (with the ports table) is available.
     @Published var isMainWindowOpen = false
+    /// Drives the Add Project sheet from the Project menu or other entry points.
+    @Published var showAddProjectSheet = false
 
     struct PendingConflict: Identifiable {
         let key: ProcessKey
