@@ -55,12 +55,10 @@ struct ProjectDetailView: View {
                 Text(project.name)
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text(project.root.path)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
+                TruncatingDetailText(
+                    text: project.root.path,
+                    truncationMode: .middle
+                )
             }
             Spacer()
             Button("Start All") { appState.startProjectWithConfirmation(project) }
@@ -197,12 +195,10 @@ struct ProjectDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text(definition.command)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .textSelection(.enabled)
+                TruncatingDetailText(text: definition.command)
+                if let cwd = definition.cwd, !cwd.isEmpty {
+                    TruncatingDetailText(text: "cwd: \(cwd)")
+                }
             }
             Spacer()
             if let port = definition.port {
