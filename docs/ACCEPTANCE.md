@@ -142,7 +142,7 @@ Launch a freshly built app:
   → a (possibly different) port is assigned. Optionally start a process whose
   command ignores `$PORT` → after ~5s an orange mismatch badge appears.
 
-## TUI — v1.1.0 (`harbor-tui`)
+## TUI — v1.0.0 (`harbor-tui`)
 
 Shared-engine behavior (parsing, planning, supervision) is covered by the
 `HarborCoreTests` suite (`cd Core && swift test`, green). The items below are

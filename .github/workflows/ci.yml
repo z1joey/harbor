@@ -106,12 +106,15 @@ jobs:
 
       - name: Build harbor-tui (universal binary)
         working-directory: Core
-        run: swift build -c release --arch arm64 --arch x86_64
+        run: |
+          swift build -c release --arch arm64 --arch x86_64
+          BIN_DIR=$(swift build --show-bin-path -c release --arch arm64 --arch x86_64)
+          echo "TUI_BIN_DIR=$BIN_DIR" >> "$GITHUB_ENV"
 
       - name: Package harbor-tui
         run: |
           tar -czf "harbor-tui-$VERSION.macos-universal.tar.gz" \
-            -C Core/.build/apple/Products/Release harbor-tui
+            -C "$TUI_BIN_DIR" harbor-tui
 
       - name: Create GitHub release
         env:
