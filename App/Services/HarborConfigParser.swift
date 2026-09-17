@@ -5,6 +5,7 @@ struct ParsedProjectConfig {
     var name: String
     var configName: String
     var processes: [ProcessDefinition]
+    var portClaims: [PortClaim]
 }
 
 enum HarborConfigError: LocalizedError {
@@ -44,14 +45,15 @@ enum HarborConfigParser {
         do {
             let parsed = try parse(text: text)
             let name = parsed.name?.isEmpty == false ? parsed.name! : root.lastPathComponent
-            return .success(ParsedProjectConfig(name: name, configName: configURL.lastPathComponent, processes: parsed.processes))
+            return .success(ParsedProjectConfig(name: name, configName: configURL.lastPathComponent,
+                                                processes: parsed.processes, portClaims: parsed.portClaims))
         } catch {
             return .failure(error)
         }
     }
 
     /// Throws `HarborConfigError` with a user-readable message on any problem.
-    static func parse(text: String) throws -> (name: String?, processes: [ProcessDefinition]) {
+    static func parse(text: String) throws -> (name: String?, processes: [ProcessDefinition], portClaims: [PortClaim]) {
         let table: TOMLTable
         do {
             table = try TOMLTable(string: text)
@@ -65,7 +67,7 @@ enum HarborConfigParser {
             if table["process"] != nil {
                 throw HarborConfigError.invalid("\"process\" must be a list of tables ([[process]]).")
             }
-            return (name, [])
+            return (name, [], try parsePortClaims(table: table, processes: []))
         }
 
         var processes: [ProcessDefinition] = []
@@ -126,11 +128,48 @@ enum HarborConfigParser {
                 env: env
             ))
         }
-        return (name, processes)
+        return (name, processes, try parsePortClaims(table: table, processes: processes))
     }
 
-    static func templateText(projectName: String) -> String {
-        """
+    /// Parses `[[port_claim]]` entries: ports the project relies on without a
+    /// single owning `[[process]]` (databases, brokers, multi-port processes).
+    private static func parsePortClaims(table: TOMLTable, processes: [ProcessDefinition]) throws -> [PortClaim] {
+        guard let claimArray = table["port_claim"]?.array else {
+            if table["port_claim"] != nil {
+                throw HarborConfigError.invalid("\"port_claim\" must be a list of tables ([[port_claim]]).")
+            }
+            return []
+        }
+
+        let processNames = Set(processes.map(\.name))
+        var seenPorts = Set(processes.compactMap(\.port))
+        var claims: [PortClaim] = []
+        for index in 0..<claimArray.count {
+            guard let entry = claimArray[index]?.table else {
+                throw HarborConfigError.invalid("port_claim[\(index)] is not a table.")
+            }
+            guard let port = entry["port"]?.int, port >= 1, port <= 65535 else {
+                throw HarborConfigError.invalid("port_claim[\(index)] is missing an integer \"port\" between 1 and 65535.")
+            }
+            guard seenPorts.insert(port).inserted else {
+                throw HarborConfigError.invalid("port_claim[\(index)]: port \(port) is already declared in this config.")
+            }
+            let note = entry["note"]?.string
+            let processName = entry["process"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+            if let processName, !processNames.contains(processName) {
+                throw HarborConfigError.invalid("port_claim[\(index)]: process \"\(processName)\" is not defined in this config.")
+            }
+            claims.append(PortClaim(port: port, note: note, processName: processName))
+        }
+        return claims
+    }
+
+    static func templateText(projectName: String, suggestedPort: Int? = nil) -> String {
+        let portComment = suggestedPort.map {
+            "# port = \($0)                  # suggested: no registered project claims \($0)"
+        } ?? "# port = 8000                  # optional, enables conflict detection"
+
+        return """
         name = "\(Self.escape(projectName))"
 
         # Rename and fill in your processes below, then start them from Harbor.
@@ -138,10 +177,17 @@ enum HarborConfigParser {
         name = "dev"
         command = "echo \\"replace me with your dev command\\" && sleep 3600"
         # cwd = "backend"              # optional, relative to this folder
-        # port = 8000                  # optional, enables conflict detection
+        \(portComment)
         # ready_url = "http://127.0.0.1:8000/health"  # optional, M3 health gate
         # auto_restart = false         # optional, restart on crash
         # env = { "FOO" = "bar" }      # optional environment overrides
+
+        # Ports the project relies on without one owning [[process]] — a
+        # database, broker, … — so Harbor can warn before two projects collide.
+        # [[port_claim]]
+        # port = 5432
+        # note = "postgres"
+        # process = "dev"              # optional, must match a [[process]] name above
         """
     }
 

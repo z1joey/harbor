@@ -123,4 +123,99 @@ final class ConfigParserTests: XCTestCase {
         XCTAssertEqual(parsed.name, "empty")
         XCTAssertTrue(parsed.processes.isEmpty)
     }
+
+    // MARK: - [[port_claim]]
+
+    func testParsesPortClaims() throws {
+        let parsed = try HarborConfigParser.parse(text: """
+        name = "claims"
+        [[process]]
+        name = "deps"
+        command = "docker compose up -d postgres redis"
+
+        [[port_claim]]
+        port = 5432
+        note = "postgres"
+        process = "deps"
+
+        [[port_claim]]
+        port = 6379
+        """)
+        XCTAssertEqual(parsed.portClaims.count, 2)
+        XCTAssertEqual(parsed.portClaims[0].port, 5432)
+        XCTAssertEqual(parsed.portClaims[0].note, "postgres")
+        XCTAssertEqual(parsed.portClaims[0].processName, "deps")
+        XCTAssertEqual(parsed.portClaims[1].port, 6379)
+        XCTAssertNil(parsed.portClaims[1].processName)
+    }
+
+    func testPortClaimsWithoutProcessesAreAllowed() throws {
+        let parsed = try HarborConfigParser.parse(text: """
+        name = "external"
+        [[port_claim]]
+        port = 5432
+        note = "system postgres"
+        """)
+        XCTAssertEqual(parsed.portClaims.map(\.port), [5432])
+        XCTAssertTrue(parsed.processes.isEmpty)
+    }
+
+    func testPortClaimOutOfRangeIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[port_claim]]
+        port = 70000
+        """))
+    }
+
+    func testPortClaimMissingPortIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[port_claim]]
+        note = "no port here"
+        """))
+    }
+
+    func testDuplicatePortClaimIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[port_claim]]
+        port = 5432
+
+        [[port_claim]]
+        port = 5432
+        """))
+    }
+
+    func testPortClaimClashingWithProcessPortIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "web"
+        command = "npm run dev"
+        port = 5173
+
+        [[port_claim]]
+        port = 5173
+        note = "duplicate of the process port"
+        """))
+    }
+
+    func testPortClaimForUnknownProcessIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "run api"
+
+        [[port_claim]]
+        port = 5432
+        process = "database"
+        """))
+    }
+
+    func testTemplateParsesWithNoClaimsAndSuggestedPortIsCommentedOut() throws {
+        let template = HarborConfigParser.templateText(projectName: "fresh", suggestedPort: 8123)
+        XCTAssertTrue(template.contains("port = 8123"))
+        XCTAssertTrue(template.contains("[[port_claim]]"))
+        let parsed = try HarborConfigParser.parse(text: template)
+        XCTAssertEqual(parsed.processes.count, 1)
+        XCTAssertTrue(parsed.portClaims.isEmpty)
+        XCTAssertNil(parsed.processes[0].port)
+    }
 }
