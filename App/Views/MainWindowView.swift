@@ -25,10 +25,14 @@ struct MainWindowView: View {
                 .environmentObject(appState)
         }
         .navigationTitle("Harbor")
+        .onAppear {
+            appState.isMainWindowOpen = true
+        }
         .onReceive(windowKeyPublisher) { _ in
             appState.reloadConfigsIfStale()
         }
         .onDisappear {
+            appState.isMainWindowOpen = false
             // Window closed: back to pure menubar agent (no Dock icon).
             NSApp.setActivationPolicy(.accessory)
         }

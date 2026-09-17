@@ -18,6 +18,9 @@ final class AppState: ObservableObject {
     @Published var lastKillError: String?
     @Published var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled
     @Published var launchAtLoginError: String?
+    /// Whether the main window is open. The menubar popover only offers its
+    /// port filter while the full window (with the ports table) is available.
+    @Published var isMainWindowOpen = false
 
     struct PendingConflict: Identifiable {
         let key: ProcessKey

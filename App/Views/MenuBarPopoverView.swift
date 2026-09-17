@@ -11,7 +11,9 @@ struct MenuBarPopoverView: View {
     private let maxPortRows = 8
 
     private var filteredListeners: [Listener] {
-        let query = portFilter.trimmingCharacters(in: .whitespaces)
+        // No filter while the main window is closed — the field is hidden and
+        // a stale query must not invisibly narrow the popover list.
+        let query = appState.isMainWindowOpen ? portFilter.trimmingCharacters(in: .whitespaces) : ""
         var list = appState.portObserver.listeners
         if !query.isEmpty {
             list = list.filter {
@@ -182,11 +184,13 @@ struct MenuBarPopoverView: View {
             HStack {
                 Text("LISTENING PORTS").font(.caption2).foregroundStyle(.secondary)
                 Spacer()
-                TextField("Filter", text: $portFilter)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 130)
-                    .font(.caption)
-                    .controlSize(.small)
+                if appState.isMainWindowOpen {
+                    TextField("Filter", text: $portFilter)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 130)
+                        .font(.caption)
+                        .controlSize(.small)
+                }
             }
             if filteredListeners.isEmpty {
                 Text(appState.portObserver.lastError ?? "No listening TCP ports.")
