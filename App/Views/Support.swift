@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HarborCore
 
 /// Menu bar icon: ferry when idle, filled ferry + running count when anything
 /// is up, warning triangle when a declared port is taken by a foreign PID.

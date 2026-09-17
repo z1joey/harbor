@@ -1,4 +1,5 @@
 import SwiftUI
+import HarborCore
 
 /// Editor for a generated harbor.toml draft (from Procfile / package.json import):
 /// the user reviews/edits the TOML before it is written to disk.

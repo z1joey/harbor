@@ -1,4 +1,5 @@
 import XCTest
+@testable import HarborCore
 
 final class ConfigParserTests: XCTestCase {
     private let sampleToml = """
@@ -42,10 +43,18 @@ final class ConfigParserTests: XCTestCase {
     }
 
     func testRepoSampleFixtureParses() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // Tests/
-            .deletingLastPathComponent() // repo root
-            .appendingPathComponent("fixtures/sample-harbor.toml")
+        // Walk up from the test file: SPM and the Xcode test target nest at different depths.
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        var url: URL?
+        for _ in 0..<6 {
+            let candidate = dir.appendingPathComponent("fixtures/sample-harbor.toml")
+            if FileManager.default.fileExists(atPath: candidate.path) { url = candidate; break }
+            dir.deleteLastPathComponent()
+        }
+        guard let url else {
+            XCTFail("fixtures/sample-harbor.toml not found in any parent directory")
+            return
+        }
         let text = try String(contentsOf: url, encoding: .utf8)
         let parsed = try HarborConfigParser.parse(text: text)
         XCTAssertEqual(parsed.processes.count, 2)

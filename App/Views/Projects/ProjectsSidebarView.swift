@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HarborCore
 
 struct ProjectsSidebarView: View {
     @EnvironmentObject private var appState: AppState

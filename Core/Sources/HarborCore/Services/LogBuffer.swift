@@ -4,26 +4,26 @@ import Combine
 /// Thread-safe ring buffer of log lines (kept in memory, ~2000 lines per process).
 /// Appends may come from any queue (process pipe readers); UI updates are coalesced
 /// so fast-spewing processes don't flood the main thread.
-final class LogBuffer: ObservableObject {
+public final class LogBuffer: ObservableObject {
     private let capacity: Int
     private var lines: [String] = []
     private var droppedLines = 0
     private let lock = NSLock()
     private var bumpScheduled = false
 
-    init(capacity: Int = 2000) {
+    public init(capacity: Int = 2000) {
         self.capacity = capacity
     }
 
-    var capacityLimit: Int { capacity }
+    public var capacityLimit: Int { capacity }
 
     /// Number of lines dropped from the front once the ring wrapped.
-    var droppedLineCount: Int {
+    public var droppedLineCount: Int {
         lock.lock(); defer { lock.unlock() }
         return droppedLines
     }
 
-    func appendLine(_ line: String) {
+    public func appendLine(_ line: String) {
         let trimmed = line.hasSuffix("\r") ? String(line.dropLast()) : line
         lock.lock()
         lines.append(trimmed)
@@ -36,12 +36,12 @@ final class LogBuffer: ObservableObject {
     }
 
     /// Current lines (oldest first). Call again whenever `objectWillChange` fires.
-    func snapshot() -> [String] {
+    public func snapshot() -> [String] {
         lock.lock(); defer { lock.unlock() }
         return lines
     }
 
-    func clear() {
+    public func clear() {
         lock.lock()
         lines.removeAll()
         droppedLines = 0

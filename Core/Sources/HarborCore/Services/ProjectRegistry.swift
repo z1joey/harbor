@@ -4,14 +4,14 @@ import Foundation
 /// (`~/Library/Application Support/Harbor/projects.json`) and keeps parsed
 /// `Project` values up to date by watching each config file for changes.
 @MainActor
-final class ProjectRegistry: ObservableObject {
-    @Published private(set) var projects: [Project] = []
+public final class ProjectRegistry: ObservableObject {
+    @Published public private(set) var projects: [Project] = []
 
-    let storeURL: URL
+    public let storeURL: URL
     private var watchers: [String: DispatchSourceFileSystemObject] = [:]
     private var reloadDebounce: [String: DispatchWorkItem] = [:]
 
-    init(storeURL: URL? = nil) {
+    public init(storeURL: URL? = nil) {
         if let storeURL {
             self.storeURL = storeURL
         } else {
@@ -51,13 +51,13 @@ final class ProjectRegistry: ObservableObject {
 
     // MARK: - Loading
 
-    func load() {
+    public func load() {
         projects = readStore().map { buildProject(root: normalizedRoot(URL(fileURLWithPath: $0))) }
         syncStoreFromMemory()
         restartWatchers()
     }
 
-    func buildProject(root: URL) -> Project {
+    public func buildProject(root: URL) -> Project {
         switch HarborConfigParser.parse(root: root) {
         case .success(let parsed):
             return Project(root: root, name: parsed.name, processes: parsed.processes,
@@ -74,7 +74,7 @@ final class ProjectRegistry: ObservableObject {
     }
 
     /// Cheap refresh of every project's parsed config (used on window focus).
-    func reloadAll() {
+    public func reloadAll() {
         guard !projects.isEmpty else { return }
         projects = projects.map { buildProject(root: $0.root) }
         restartWatchers()
@@ -82,12 +82,12 @@ final class ProjectRegistry: ObservableObject {
 
     // MARK: - Add / Remove
 
-    enum AddError: LocalizedError {
+    public enum AddError: LocalizedError {
         case notADirectory
         case alreadyRegistered
         case missingConfig
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .notADirectory: return "That path is not a folder."
             case .alreadyRegistered: return "This folder is already registered."
@@ -99,7 +99,7 @@ final class ProjectRegistry: ObservableObject {
     /// Registers a project root. If the folder has no config and
     /// `createTemplateIfMissing` is true, writes a starter `harbor.toml` first
     /// (`suggestedPort` is baked into the template as a conflict-free hint).
-    func add(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int? = nil) -> Result<Project, Error> {
+    public func add(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int? = nil) -> Result<Project, Error> {
         let root = normalizedRoot(root)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -123,7 +123,7 @@ final class ProjectRegistry: ObservableObject {
     }
 
     /// Unregisters the project — files on disk are left alone.
-    func remove(projectID: String) {
+    public func remove(projectID: String) {
         projects.removeAll { $0.id == projectID }
         syncStoreFromMemory()
         watchers[projectID]?.cancel()
@@ -132,7 +132,7 @@ final class ProjectRegistry: ObservableObject {
         reloadDebounce[projectID] = nil
     }
 
-    func createTemplate(root: URL, suggestedPort: Int? = nil) -> Result<URL, Error> {
+    public func createTemplate(root: URL, suggestedPort: Int? = nil) -> Result<URL, Error> {
         let url = root.appendingPathComponent("harbor.toml")
         do {
             try HarborConfigParser.templateText(projectName: root.lastPathComponent, suggestedPort: suggestedPort)
@@ -144,7 +144,7 @@ final class ProjectRegistry: ObservableObject {
     }
 
     /// Re-parses one project's config (config file changed on disk).
-    func reload(projectID: String) {
+    public func reload(projectID: String) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
         let root = projects[index].root
         projects[index] = buildProject(root: root)

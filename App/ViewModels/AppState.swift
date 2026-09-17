@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import HarborCore
 
 /// Root application state: wires the port observer, project registry and
 /// process supervisor together and exposes everything the UI needs.

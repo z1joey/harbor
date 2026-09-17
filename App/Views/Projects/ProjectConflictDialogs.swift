@@ -1,4 +1,5 @@
 import SwiftUI
+import HarborCore
 
 /// Confirmation dialogs for port conflicts (single process + start-all),
 /// scoped to a project when `projectID` is given. Shared by the popover,

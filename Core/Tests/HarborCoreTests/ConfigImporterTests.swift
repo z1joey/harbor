@@ -1,4 +1,5 @@
 import XCTest
+@testable import HarborCore
 
 final class ConfigImporterTests: XCTestCase {
     func testProcfileDraftParsesBack() throws {

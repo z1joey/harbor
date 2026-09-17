@@ -1,5 +1,6 @@
 import Foundation
 import ServiceManagement
+import HarborCore
 
 /// Launch-at-login via SMAppService (macOS 13+). Dev builds that aren't in
 /// /Applications may fail to register — the error is surfaced, not fatal.

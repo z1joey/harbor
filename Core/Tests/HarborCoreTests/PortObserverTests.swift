@@ -1,4 +1,5 @@
 import XCTest
+@testable import HarborCore
 
 final class PortObserverTests: XCTestCase {
     /// A realistic lsof row set: header, IPv4+IPv6 duplicates for one pid,

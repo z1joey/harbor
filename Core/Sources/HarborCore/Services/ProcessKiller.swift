@@ -2,13 +2,13 @@ import Foundation
 import Darwin
 
 /// Signal helpers: kill a PID or the whole descendant tree (TERM, then KILL after grace).
-enum ProcessKiller {
-    enum KillError: Error, Equatable {
+public enum ProcessKiller {
+    public enum KillError: Error, Equatable {
         case notRunning(pid_t)
         case permissionDenied(pid_t)
         case signalFailed(pid_t, Int32)
 
-        var message: String {
+        public var message: String {
             switch self {
             case .notRunning(let pid):
                 return "PID \(pid) is not running (it may have already exited)."
@@ -20,7 +20,7 @@ enum ProcessKiller {
         }
     }
 
-    static func send(_ signal: Int32, to pid: pid_t) -> Result<Void, KillError> {
+    public static func send(_ signal: Int32, to pid: pid_t) -> Result<Void, KillError> {
         if kill(pid, signal) == 0 { return .success(()) }
         switch errno {
         case ESRCH: return .failure(.notRunning(pid))
@@ -29,13 +29,13 @@ enum ProcessKiller {
         }
     }
 
-    static func isAlive(_ pid: pid_t) -> Bool {
+    public static func isAlive(_ pid: pid_t) -> Bool {
         if kill(pid, 0) == 0 { return true }
         return errno == EPERM
     }
 
     /// Snapshot of every process as (pid, parent pid).
-    static func processTable() -> [(pid: pid_t, ppid: pid_t)] {
+    public static func processTable() -> [(pid: pid_t, ppid: pid_t)] {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
         guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
@@ -48,7 +48,7 @@ enum ProcessKiller {
     }
 
     /// All living descendants of `root` (excluding the root itself), computed from a snapshot.
-    static func descendants(of root: pid_t, in table: [(pid: pid_t, ppid: pid_t)]) -> Set<pid_t> {
+    public static func descendants(of root: pid_t, in table: [(pid: pid_t, ppid: pid_t)]) -> Set<pid_t> {
         var children: [pid_t: [pid_t]] = [:]
         for entry in table where entry.ppid != 0 {
             children[entry.ppid, default: []].append(entry.pid)
@@ -66,7 +66,7 @@ enum ProcessKiller {
 
     /// TERM the whole tree, wait up to `grace` seconds, KILL whatever survives.
     /// Fails only if the root process itself could not be signaled (e.g. permission denied).
-    static func terminateTree(rootPID: pid_t, grace: TimeInterval = 2.0) async -> Result<Void, KillError> {
+    public static func terminateTree(rootPID: pid_t, grace: TimeInterval = 2.0) async -> Result<Void, KillError> {
         let table = processTable()
         let targets = Array(descendants(of: rootPID, in: table)) + [rootPID]
 
@@ -95,7 +95,7 @@ enum ProcessKiller {
     }
 
     /// Synchronous stop used at app-quit time (short grace, blocks the caller briefly).
-    static func emergencyStop(rootPID: pid_t, grace: TimeInterval = 1.0) {
+    public static func emergencyStop(rootPID: pid_t, grace: TimeInterval = 1.0) {
         let table = processTable()
         let targets = Array(descendants(of: rootPID, in: table)) + [rootPID]
         for pid in targets {

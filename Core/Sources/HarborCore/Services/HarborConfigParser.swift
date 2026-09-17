@@ -1,21 +1,21 @@
 import Foundation
 import TOMLKit
 
-struct ParsedProjectConfig {
-    var name: String
-    var configName: String
-    var processes: [ProcessDefinition]
-    var portClaims: [PortClaim]
-    var openProcessName: String?
-    var openURL: URL?
+public struct ParsedProjectConfig {
+    public var name: String
+    public var configName: String
+    public var processes: [ProcessDefinition]
+    public var portClaims: [PortClaim]
+    public var openProcessName: String?
+    public var openURL: URL?
 }
 
-enum HarborConfigError: LocalizedError {
+public enum HarborConfigError: LocalizedError {
     case readFailed(String)
     case parse(String)
     case invalid(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .readFailed(let message): return message
         case .parse(let message): return "TOML parse error: \(message)"
@@ -25,10 +25,10 @@ enum HarborConfigError: LocalizedError {
 }
 
 /// Parses `harbor.toml` / `.harbor.toml` (TOML via TOMLKit) into project definitions.
-enum HarborConfigParser {
-    static let configNames = ["harbor.toml", ".harbor.toml"]
+public enum HarborConfigParser {
+    public static let configNames = ["harbor.toml", ".harbor.toml"]
 
-    static func locateConfig(in root: URL) -> URL? {
+    public static func locateConfig(in root: URL) -> URL? {
         let fm = FileManager.default
         for name in configNames {
             let candidate = root.appendingPathComponent(name)
@@ -37,7 +37,7 @@ enum HarborConfigParser {
         return nil
     }
 
-    static func parse(root: URL) -> Result<ParsedProjectConfig, Error> {
+    public static func parse(root: URL) -> Result<ParsedProjectConfig, Error> {
         guard let configURL = locateConfig(in: root) else {
             return .failure(HarborConfigError.readFailed("No harbor.toml (or .harbor.toml) found in this folder."))
         }
@@ -57,8 +57,8 @@ enum HarborConfigParser {
     }
 
     /// Throws `HarborConfigError` with a user-readable message on any problem.
-    static func parse(text: String) throws -> (name: String?, processes: [ProcessDefinition], portClaims: [PortClaim],
-                                               openProcessName: String?, openURL: URL?) {
+    public static func parse(text: String) throws -> (name: String?, processes: [ProcessDefinition], portClaims: [PortClaim],
+                                                       openProcessName: String?, openURL: URL?) {
         let table: TOMLTable
         do {
             table = try TOMLTable(string: text)
@@ -235,7 +235,7 @@ enum HarborConfigParser {
         return claims
     }
 
-    static func templateText(projectName: String, suggestedPort: Int? = nil) -> String {
+    public static func templateText(projectName: String, suggestedPort: Int? = nil) -> String {
         let portComment = suggestedPort.map {
             "# port = \($0)                  # suggested: no registered project claims \($0)"
         } ?? "# port = 8000                  # optional, enables conflict detection"
@@ -270,7 +270,7 @@ enum HarborConfigParser {
         """
     }
 
-    static func escape(_ value: String) -> String {
+    public static func escape(_ value: String) -> String {
         value.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
     }

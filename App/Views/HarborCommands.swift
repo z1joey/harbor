@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HarborCore
 
 struct HarborCommands: Commands {
     @ObservedObject var appState: AppState

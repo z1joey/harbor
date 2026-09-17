@@ -1,4 +1,5 @@
 import SwiftUI
+import HarborCore
 
 @main
 struct HarborApp: App {

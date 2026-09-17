@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import HarborCore
 
 /// Crash / port-conflict notifications. Fails soft: if the user denies
 /// permission, calls simply do nothing.

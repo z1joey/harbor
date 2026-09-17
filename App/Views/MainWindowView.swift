@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HarborCore
 
 struct MainWindowView: View {
     @EnvironmentObject private var appState: AppState

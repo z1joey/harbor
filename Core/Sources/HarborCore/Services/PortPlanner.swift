@@ -12,36 +12,48 @@ import Darwin
 ///   `foreignListener` deliberately ignored managed PIDs.)
 /// - **Static overlaps** — two or more projects claim the same port even
 ///   though nothing is running yet. This is the planning-time warning.
-enum PortPlanner {
+public enum PortPlanner {
     /// A Harbor-managed process currently holding a port.
-    struct ManagedHolder: Hashable {
-        let projectID: String
-        let projectName: String
-        let processName: String
+    public struct ManagedHolder: Hashable {
+        public let projectID: String
+        public let projectName: String
+        public let processName: String
+
+        public init(projectID: String, projectName: String, processName: String) {
+            self.projectID = projectID
+            self.projectName = projectName
+            self.processName = processName
+        }
     }
 
     /// One port a project needs, with its config-side source.
-    struct ClaimedPort: Hashable {
-        let port: Int
+    public struct ClaimedPort: Hashable {
+        public let port: Int
         /// `[[process]]` name when the port comes from a process entry; nil for a bare claim.
-        let processName: String?
-        let note: String?
+        public let processName: String?
+        public let note: String?
+
+        public init(port: Int, processName: String?, note: String?) {
+            self.port = port
+            self.processName = processName
+            self.note = note
+        }
     }
 
     /// A port a project needs while somebody else is listening on it.
-    struct RuntimeConflict: Identifiable, Hashable {
-        let projectID: String
-        let projectName: String
-        let port: Int
+    public struct RuntimeConflict: Identifiable, Hashable {
+        public let projectID: String
+        public let projectName: String
+        public let port: Int
         /// Process the port is configured on, if it came from `[[process]].port`.
-        let processName: String?
-        let listener: Listener
+        public let processName: String?
+        public let listener: Listener
         /// nil = holder is a foreign (unmanaged) process.
-        let managedHolder: ManagedHolder?
+        public let managedHolder: ManagedHolder?
 
-        var id: String { "\(projectID)::\(port)::\(listener.pid)" }
+        public var id: String { "\(projectID)::\(port)::\(listener.pid)" }
 
-        var holderLabel: String {
+        public var holderLabel: String {
             if let managedHolder {
                 return "\(managedHolder.projectName) · \(managedHolder.processName)"
             }
@@ -50,18 +62,23 @@ enum PortPlanner {
     }
 
     /// A port claimed by two or more projects — latent until both run at once.
-    struct StaticOverlap: Identifiable, Hashable {
-        let port: Int
+    public struct StaticOverlap: Identifiable, Hashable {
+        public let port: Int
         /// Claiming project names, sorted.
-        let projects: [String]
+        public let projects: [String]
 
-        var id: Int { port }
+        public var id: Int { port }
+
+        public init(port: Int, projects: [String]) {
+            self.port = port
+            self.projects = projects
+        }
     }
 
     // MARK: - Claims
 
     /// Every port claim across all projects (process ports + `[[port_claim]]`).
-    static func claims(projects: [Project]) -> [(projectName: String, claim: ClaimedPort)] {
+    public static func claims(projects: [Project]) -> [(projectName: String, claim: ClaimedPort)] {
         var result: [(projectName: String, claim: ClaimedPort)] = []
         for project in projects {
             for definition in project.processes {
@@ -87,7 +104,7 @@ enum PortPlanner {
     /// holders never appear as managed PIDs even when everything is healthy,
     /// so treating them as conflicts would light the menubar warning
     /// permanently. Claims still drive static overlaps and the Ports Overview.
-    static func conflicts(forProject project: Project,
+    public static func conflicts(forProject project: Project,
                           listeners: [Listener],
                           managedHolder: (pid_t) -> ManagedHolder?) -> [RuntimeConflict] {
         var byPort: [Int: ClaimedPort] = [:]
@@ -114,7 +131,7 @@ enum PortPlanner {
     }
 
     /// Conflicts across every registered project, sorted by port.
-    static func runtimeConflicts(projects: [Project],
+    public static func runtimeConflicts(projects: [Project],
                                  listeners: [Listener],
                                  managedHolder: (pid_t) -> ManagedHolder?) -> [RuntimeConflict] {
         projects
@@ -125,7 +142,7 @@ enum PortPlanner {
     // MARK: - Static overlaps
 
     /// Ports claimed by two or more projects, sorted by port.
-    static func staticOverlaps(projects: [Project]) -> [StaticOverlap] {
+    public static func staticOverlaps(projects: [Project]) -> [StaticOverlap] {
         var namesByPort: [Int: Set<String>] = [:]
         for (projectName, claim) in claims(projects: projects) {
             namesByPort[claim.port, default: []].insert(projectName)
@@ -140,7 +157,7 @@ enum PortPlanner {
     // MARK: - Suggestions
 
     /// `count` port numbers starting from `base` that nothing claims or listens on.
-    static func suggestFreePorts(count: Int, from base: Int, taken: Set<Int>) -> [Int] {
+    public static func suggestFreePorts(count: Int, from base: Int, taken: Set<Int>) -> [Int] {
         var suggestions: [Int] = []
         var candidate = max(base, 1)
         while suggestions.count < count, candidate <= 65535 {
@@ -155,10 +172,10 @@ enum PortPlanner {
     // MARK: - Auto port allocation
 
     /// Default scan range for `port = "auto"` processes.
-    static let autoPortRange = 8100...9999
+    public static let autoPortRange = 8100...9999
 
     /// First port in `autoPortRange` not in `taken` and passing `isBindable`.
-    static func allocatePort(taken: Set<Int>, isBindable: (Int) -> Bool = isBindable) -> Int? {
+    public static func allocatePort(taken: Set<Int>, isBindable: (Int) -> Bool = isBindable) -> Int? {
         for port in autoPortRange where !taken.contains(port) && isBindable(port) {
             return port
         }
@@ -166,7 +183,7 @@ enum PortPlanner {
     }
 
     /// Returns true when `port` can be bound on 0.0.0.0 (catches stale lsof gaps).
-    static func isBindable(_ port: Int) -> Bool {
+    public static func isBindable(_ port: Int) -> Bool {
         guard port >= 1, port <= 65535 else { return false }
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
@@ -186,18 +203,18 @@ enum PortPlanner {
     }
 
     /// Soft lint: does `command` reference the port env var (e.g. `$PORT`)?
-    static func commandReferencesPortEnv(_ command: String, envName: String) -> Bool {
+    public static func commandReferencesPortEnv(_ command: String, envName: String) -> Bool {
         command.contains("$" + envName)
             || command.contains("${" + envName + "}")
     }
 
     /// True when the process listens on ports other than the one Harbor expects.
-    static func portMismatch(expected: Int, observed: Set<Int>) -> Bool {
+    public static func portMismatch(expected: Int, observed: Set<Int>) -> Bool {
         !observed.isEmpty && !observed.contains(expected)
     }
 
     /// Ports an lsof snapshot attributes to `rootPID` or its descendants.
-    static func observedListeningPorts(rootPID: pid_t,
+    public static func observedListeningPorts(rootPID: pid_t,
                                        listeners: [Listener],
                                        processTable: [(pid: pid_t, ppid: pid_t)]) -> Set<Int> {
         let tree = Set([rootPID] + Array(ProcessKiller.descendants(of: rootPID, in: processTable)))
@@ -205,7 +222,7 @@ enum PortPlanner {
     }
 
     /// After `grace`, returns a mismatch when the process tree listens elsewhere.
-    static func portVerification(status: ProcessStatus,
+    public static func portVerification(status: ProcessStatus,
                                definitionPort: Int?,
                                listeners: [Listener],
                                processTable: [(pid: pid_t, ppid: pid_t)],

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HarborCore
 
 struct MenuBarPopoverView: View {
     @EnvironmentObject private var appState: AppState

@@ -4,12 +4,18 @@ import Foundation
 /// — infrastructure like a database or message broker, or processes that
 /// listen on several ports. Declared via `[[port_claim]]` in `harbor.toml`;
 /// feeds static overlap detection and the ports overview.
-struct PortClaim: Identifiable, Hashable {
-    let port: Int
+public struct PortClaim: Identifiable, Hashable {
+    public let port: Int
     /// Optional human label, e.g. "postgres".
-    let note: String?
+    public let note: String?
     /// Optional `[[process]]` name this claim belongs to (display only).
-    let processName: String?
+    public let processName: String?
 
-    var id: Int { port }
+    public var id: Int { port }
+
+    public init(port: Int, note: String? = nil, processName: String? = nil) {
+        self.port = port
+        self.note = note
+        self.processName = processName
+    }
 }
