@@ -6,7 +6,7 @@ struct ProjectsSidebarView: View {
     @Binding var selection: MainWindowView.SidebarItem?
 
     var body: some View {
-        List(selection: $selection) {
+        List {
             Section("Projects") {
                 if appState.registry.projects.isEmpty {
                     Text("No projects")
@@ -14,13 +14,10 @@ struct ProjectsSidebarView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(appState.registry.projects) { project in
-                    HStack {
-                        Image(systemName: "folder")
-                        Text(project.name).lineLimit(1)
-                        Spacer()
-                        runningBadge(for: project)
-                    }
-                    .tag(MainWindowView.SidebarItem.project(project.id) as MainWindowView.SidebarItem?)
+                    sidebarButton(
+                        item: .project(project.id),
+                        label: { projectRow(project) }
+                    )
                     .contextMenu {
                         Button("Reveal in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([project.root])
@@ -40,32 +37,64 @@ struct ProjectsSidebarView: View {
                 }
             }
             Section("Observe") {
-                HStack {
-                    Image(systemName: "square.grid.2x2")
-                    Text("Ports Overview")
-                    Spacer()
-                    if !appState.staticOverlaps.isEmpty {
-                        Text(String(appState.staticOverlaps.count))
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.orange.opacity(0.3)))
+                sidebarButton(
+                    item: .portsOverview,
+                    label: {
+                        HStack {
+                            Image(systemName: "square.grid.2x2")
+                            Text("Ports Overview")
+                            Spacer()
+                            if !appState.staticOverlaps.isEmpty {
+                                Text(String(appState.staticOverlaps.count))
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.orange.opacity(0.3)))
+                            }
+                        }
                     }
-                }
-                .tag(MainWindowView.SidebarItem.portsOverview as MainWindowView.SidebarItem?)
-                HStack {
-                    Image(systemName: "dot.3.connected.endpoints")
-                    Text("Listening Ports")
-                    Spacer()
-                    Text(String(appState.portObserver.listeners.count))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .tag(MainWindowView.SidebarItem.ports as MainWindowView.SidebarItem?)
+                )
+                sidebarButton(
+                    item: .ports,
+                    label: {
+                        HStack {
+                            Image(systemName: "dot.3.connected.endpoints")
+                            Text("Listening Ports")
+                            Spacer()
+                            Text(String(appState.portObserver.listeners.count))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                )
             }
         }
         .listStyle(.sidebar)
+    }
+
+    private func sidebarButton<ItemLabel: View>(
+        item: MainWindowView.SidebarItem,
+        @ViewBuilder label: () -> ItemLabel
+    ) -> some View {
+        Button {
+            selection = item
+        } label: {
+            label()
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(selection == item ? Color.accentColor.opacity(0.18) : Color.clear)
+    }
+
+    @ViewBuilder
+    private func projectRow(_ project: Project) -> some View {
+        HStack {
+            Image(systemName: "folder")
+            Text(project.name).lineLimit(1)
+            Spacer()
+            runningBadge(for: project)
+        }
     }
 
     @ViewBuilder

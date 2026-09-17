@@ -19,6 +19,8 @@ struct MainWindowView: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } detail: {
             detail
+                .id(selection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar { toolbarContent }
         .sheet(isPresented: $showAddSheet) {
@@ -28,15 +30,16 @@ struct MainWindowView: View {
         .navigationTitle("Harbor")
         .onAppear {
             appState.isMainWindowOpen = true
-        }
-        .onReceive(windowKeyPublisher) { _ in
-            appState.reloadConfigsIfStale()
+            selectDefaultSidebarItemIfNeeded()
         }
         .onReceive(appState.registry.$projects) { projects in
             if case .project(let id) = selection,
                !projects.contains(where: { $0.id == id }) {
-                selection = .ports
+                selection = projects.first.map { .project($0.id) } ?? .ports
             }
+        }
+        .onReceive(windowKeyPublisher) { _ in
+            appState.reloadConfigsIfStale()
         }
         .onDisappear {
             appState.isMainWindowOpen = false
@@ -62,12 +65,13 @@ struct MainWindowView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItem(placement: .navigation) {
             Button {
                 showAddSheet = true
             } label: {
                 Label("Add Project…", systemImage: "plus")
             }
+            .help("Add a project folder")
         }
         if case .project(let id) = selection,
            let project = appState.registry.projects.first(where: { $0.id == id }) {
@@ -127,5 +131,12 @@ struct MainWindowView: View {
             get: { appState.launchAtLoginEnabled },
             set: { appState.toggleLaunchAtLogin($0) }
         )
+    }
+
+    /// First launch: open the first project when one exists; otherwise Listening Ports.
+    private func selectDefaultSidebarItemIfNeeded() {
+        guard selection == .ports, appState.registry.projects.isEmpty == false,
+              let first = appState.registry.projects.first else { return }
+        selection = .project(first.id)
     }
 }

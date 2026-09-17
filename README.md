@@ -102,11 +102,15 @@ Harbor always scans for a free port at start time.
 
 ### Generating configs with the `harbor-toml` skill
 
-Harbor ships a companion **Cursor agent skill** that drafts `harbor.toml` files
-from your repo layout, plans ports against other registered projects, and
-validates the result against Harbor's parser. Install it once (if you use Cursor skills) at
-`~/.agents/skills/harbor-toml/` (`SKILL.md` plus
-`scripts/validate_harbor_toml.py`).
+Harbor has a companion **Cursor agent skill**
+[**harbor-toml**](https://github.com/z1joey/harbor-toml) that drafts
+`harbor.toml` files from your repo layout, plans ports against other registered
+projects, and validates the result against Harbor's parser. Install once:
+
+```bash
+mkdir -p ~/.agents/skills
+git clone https://github.com/z1joey/harbor-toml.git ~/.agents/skills/harbor-toml
+```
 
 **In Cursor chat**, attach or invoke the skill and ask in plain language. The
 agent reads `package.json`, `compose.yaml`, framework configs, and
@@ -131,11 +135,13 @@ Harbor.
 Validate a draft yourself (no app required):
 
 ```bash
-# From the skill directory after install:
 python3 ~/.agents/skills/harbor-toml/scripts/validate_harbor_toml.py \
   ~/Projects/shop/harbor.toml \
   ~/Projects/other-app/harbor.toml
 ```
+
+See the [harbor-toml repo](https://github.com/z1joey/harbor-toml) for the full
+skill schema (`open_process`, `port = "auto"`, Docker `port_claim`s, etc.).
 
 `OK` means parser rules pass and no static port overlap between the listed
 configs. `OVERLAP` flags two projects claiming the same fixed port; `ERROR`
