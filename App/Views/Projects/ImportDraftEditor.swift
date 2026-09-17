@@ -24,6 +24,16 @@ struct ImportDraftEditor: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            ForEach(appState.overlapsInDraft(draftText)) { overlap in
+                Label("Port \(overlap.port) is also claimed by \(overlap.projects.joined(separator: ", "))",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            Label("Free ports right now: \(appState.suggestedFreePorts(count: 3).map(String.init).joined(separator: ", "))",
+                  systemImage: "wand.and.stars")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextEditor(text: $draftText)
                 .font(.system(size: 11, design: .monospaced))
                 .border(Color.secondary.opacity(0.3))

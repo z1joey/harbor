@@ -6,6 +6,7 @@ struct MainWindowView: View {
 
     enum SidebarItem: Hashable {
         case ports
+        case portsOverview
         case project(String)
     }
 
@@ -84,6 +85,8 @@ struct MainWindowView: View {
         switch selection {
         case .ports:
             PortsTableView()
+        case .portsOverview:
+            PortsOverviewView()
         case .project(let id):
             projectDetail(id: id)
         case nil:

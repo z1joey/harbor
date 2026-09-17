@@ -24,6 +24,20 @@ struct ProjectsSidebarView: View {
             }
             Section("Observe") {
                 HStack {
+                    Image(systemName: "square.grid.2x2")
+                    Text("Ports Overview")
+                    Spacer()
+                    if !appState.staticOverlaps.isEmpty {
+                        Text(String(appState.staticOverlaps.count))
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.orange.opacity(0.3)))
+                    }
+                }
+                .tag(MainWindowView.SidebarItem.portsOverview as MainWindowView.SidebarItem?)
+                HStack {
                     Image(systemName: "dot.3.connected.endpoints")
                     Text("Listening Ports")
                     Spacer()

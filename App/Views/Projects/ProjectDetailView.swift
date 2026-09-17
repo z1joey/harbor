@@ -19,6 +19,7 @@ struct ProjectDetailView: View {
                 errorBanner(error)
             }
             conflictBanners
+            overlapBanners
             Divider()
             processList
             Divider()
@@ -111,6 +112,28 @@ struct ProjectDetailView: View {
         .background(Color.red.opacity(0.08))
     }
 
+    /// Static overlap warning: another project already claims one of this
+    /// project's ports. Purely config-level — nothing needs to be running.
+    @ViewBuilder
+    private var overlapBanners: some View {
+        let overlaps = appState.staticOverlaps.filter { $0.projects.contains(project.name) }
+        if !overlaps.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(overlaps) { overlap in
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text("Port \(overlap.port) is also claimed by \(overlap.projects.filter { $0 != project.name }.joined(separator: ", ")). Only one project can bind it at a time.")
+                            .font(.caption)
+                        Spacer()
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color.orange.opacity(0.1))
+        }
+    }
+
     @ViewBuilder
     private var conflictBanners: some View {
         let projectConflicts = appState.conflicts.filter { $0.projectName == project.name }
@@ -120,7 +143,7 @@ struct ProjectDetailView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.yellow)
-                        Text("Port \(conflict.port) (\"\(conflict.processName)\") is already in use by \(conflict.owner) (PID \(conflict.pid)). Starting will ask for confirmation.")
+                        Text("Port \(conflict.port) is in use by \(conflict.holderLabel) (PID \(conflict.listener.pid)). Starting will ask for confirmation.")
                             .font(.caption)
                         Spacer()
                     }

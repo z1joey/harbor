@@ -94,7 +94,7 @@ struct PortsTableView: View {
 
             TableColumn("Process") { listener in
                 HStack(spacing: 4) {
-                    if appState.managedPIDs.contains(listener.pid) {
+                    if appState.isManagedOrDescendant(listener.pid) {
                         Image(systemName: "sailboat.fill")
                             .foregroundStyle(.green)
                             .help("Managed by Harbor")

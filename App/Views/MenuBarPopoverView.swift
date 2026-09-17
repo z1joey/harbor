@@ -39,6 +39,14 @@ struct MenuBarPopoverView: View {
             Divider()
             portsSection
 
+            // Confirmation dialogs (system alerts) cannot be presented from a
+            // MenuBarExtra popover window on macOS 13 — their buttons never
+            // fire. Pending confirmations render inline instead.
+            if inlineConfirmation != nil {
+                Divider()
+                inlineConfirmationSection
+            }
+
             Divider()
             HStack {
                 Button("Open Harbor…") { openMainWindow() }
@@ -48,51 +56,91 @@ struct MenuBarPopoverView: View {
         }
         .padding(12)
         .frame(width: 400)
-        .confirmationDialog(
-            "Port conflict",
-            isPresented: Binding(
-                get: { appState.pendingConflict != nil },
-                set: { if !$0 { appState.cancelPendingConflict() } }
-            ),
-            presenting: appState.pendingConflict
-        ) { conflict in
-            Button("Start anyway (port \(conflict.port) is in use)", role: .destructive) {
-                appState.confirmPendingConflict()
+    }
+
+    private enum InlineConfirmation {
+        case startAll
+        case conflict
+        case kill
+    }
+
+    private var inlineConfirmation: InlineConfirmation? {
+        if appState.pendingStartAllConflicts != nil { return .startAll }
+        if appState.pendingConflict != nil { return .conflict }
+        if appState.pendingKill != nil { return .kill }
+        return nil
+    }
+
+    @ViewBuilder
+    private var inlineConfirmationSection: some View {
+        switch inlineConfirmation {
+        case .startAll:
+            if let pending = appState.pendingStartAllConflicts {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Port conflict — \(pending.projectName)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    ForEach(pending.items) { conflict in
+                        Text("Port \(conflict.port) is in use by \(conflict.holderLabel) (PID \(conflict.listener.pid)).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Button("Free ports & start all") { appState.confirmPendingStartAllConflictsFreeingPorts() }
+                        Button("Start all anyway") { appState.confirmPendingStartAllConflicts() }
+                        Spacer()
+                        Button("Cancel") { appState.cancelPendingStartAllConflicts() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.12))
             }
-            Button("Cancel", role: .cancel) { appState.cancelPendingConflict() }
-        } message: { conflict in
-            Text("Port \(conflict.port) is already in use by \(conflict.owner) (PID \(conflict.pid)). Starting \"\(conflict.processName)\" may fail.")
-        }
-        .confirmationDialog(
-            "Port conflict",
-            isPresented: Binding(
-                get: { appState.pendingStartAllConflicts != nil },
-                set: { if !$0 { appState.cancelPendingStartAllConflicts() } }
-            ),
-            presenting: appState.pendingStartAllConflicts
-        ) { pending in
-            Button("Start all anyway", role: .destructive) {
-                appState.confirmPendingStartAllConflicts()
+        case .conflict:
+            if let pending = appState.pendingConflict {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Port \(pending.port) is in use", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    Text("Held by \(pending.owner) (PID \(pending.pid)). Starting \"\(pending.processName)\" may fail.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button(pending.holder == nil
+                               ? "Kill PID \(pending.pid) & start"
+                               : "Stop \(pending.owner) & start") {
+                            appState.confirmPendingConflictFreeingPort()
+                        }
+                        Button("Start anyway") { appState.confirmPendingConflict() }
+                        Spacer()
+                        Button("Cancel") { appState.cancelPendingConflict() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.12))
             }
-            Button("Cancel", role: .cancel) { appState.cancelPendingStartAllConflicts() }
-        } message: { pending in
-            Text(pending.items.map { "Port \($0.port) (\($0.processName)) is in use by \($0.owner) (PID \($0.pid))" }
-                .joined(separator: "\n"))
-        }
-        .confirmationDialog(
-            "Kill process",
-            isPresented: Binding(
-                get: { appState.pendingKill != nil },
-                set: { if !$0 { appState.cancelPendingKill() } }
-            ),
-            presenting: appState.pendingKill
-        ) { pending in
-            Button("Kill PID \(pending.listener.pid) (port \(pending.listener.port))", role: .destructive) {
-                appState.confirmPendingKill()
+        case .kill:
+            if let pending = appState.pendingKill {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Kill PID \(pending.listener.pid)?", systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    Text("Port \(pending.listener.port) — \(pending.listener.processName). SIGTERM first, SIGKILL after ~2s.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("Kill", role: .destructive) { appState.confirmPendingKill() }
+                        Spacer()
+                        Button("Cancel") { appState.cancelPendingKill() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.12))
             }
-            Button("Cancel", role: .cancel) { appState.cancelPendingKill() }
-        } message: { pending in
-            Text("Send SIGTERM to PID \(pending.listener.pid) — \(pending.listener.processName). If it ignores SIGTERM, Harbor sends SIGKILL after ~2 seconds.")
+        case nil:
+            EmptyView()
         }
     }
 
@@ -132,7 +180,7 @@ struct MenuBarPopoverView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
                         .font(.caption2)
-                        .help("Port \(conflict.port) is in use by \(conflict.owner) (PID \(conflict.pid))")
+                        .help("Port \(conflict.port) is in use by \(conflict.holderLabel) (PID \(conflict.listener.pid))")
                 }
                 Spacer()
                 Button {
@@ -230,7 +278,7 @@ struct MenuBarPopoverView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer()
-                    if appState.managedPIDs.contains(listener.pid) {
+                    if appState.isManagedOrDescendant(listener.pid) {
                         Text("managed")
                             .font(.caption2)
                             .foregroundStyle(.green)
