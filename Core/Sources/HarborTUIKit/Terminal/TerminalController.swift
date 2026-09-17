@@ -7,7 +7,8 @@ import HarborCore
 /// minimal-diff encoder. All callbacks fire on the main queue; present() is
 /// meant to be called from the main thread too.
 public final class TerminalController {
-    public private(set) var screen: Screen
+    /// The frame being composed. Mutate it, then call `present()`.
+    public var screen: Screen
 
     public var onKey: ((Key) -> Void)?
     public var onResize: (() -> Void)?
