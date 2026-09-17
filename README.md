@@ -215,12 +215,13 @@ xcodebuild test -project Harbor.xcodeproj -scheme Harbor \
 - **Pull requests** — `xcodegen generate` + the unit-test suite above; PRs must
   pass before merge.
 - **Push to `main`** — the unit-test suite runs as a merge safety net.
-- **Releases** — pushing a version tag (`git tag v0.1.0 && git push origin
-  v0.1.0`) runs the tests, then builds a Release `Harbor.app`, packages it
-  with `ditto`, and publishes it as a GitHub release with auto-generated
-  notes. Two guards apply: the tag must point at a commit on `main`, and the
-  tag must match `MARKETING_VERSION` in `project.yml` (bump the version
-  *before* tagging). No other event produces a release.
+- **Releases** — pushing a version tag (`git tag v1.0.3 && git push origin
+  v1.0.3`) runs the tests, then builds a Release `Harbor.app`, packages
+  `Harbor-X.Y.Z.zip` and a drag-to-install `Harbor-X.Y.Z.dmg`, and publishes
+  both as a GitHub release with auto-generated notes. Two guards apply: the
+  tag must point at a commit on `main`, and the tag must match
+  `MARKETING_VERSION` in `project.yml` (bump the version *before* tagging).
+  No other event produces a release.
 
 ## Development notes
 
