@@ -9,9 +9,10 @@ final class AppState: ObservableObject {
     let registry: ProjectRegistry
     let supervisor: ProcessSupervisor
 
-    /// A single process the user asked to start while its port is held by a foreign PID.
+    /// A single process the user asked to start while its port is held by a
+    /// foreign process or another project's managed process.
     @Published var pendingConflict: PendingConflict?
-    /// "Start all" for a project where at least one declared port is held by a foreign PID.
+    /// "Start all" for a project where at least one needed port is already held.
     @Published var pendingStartAllConflicts: PendingStartAllConflicts?
     /// A kill-by-port the user still has to confirm (PID not managed by Harbor).
     @Published var pendingKill: PendingKill?
@@ -27,29 +28,33 @@ final class AppState: ObservableObject {
         let processName: String
         let port: Int
         let pid: pid_t
+        /// Human-readable label of whoever holds the port right now.
         let owner: String
+        /// nil = foreign (unmanaged) holder; otherwise the Harbor project and
+        /// process currently holding the port.
+        let holder: PortPlanner.ManagedHolder?
         var id: String { "\(key.projectID)::\(key.processName)::\(port)" }
+
+        init(key: ProcessKey, from conflict: PortPlanner.RuntimeConflict) {
+            self.key = key
+            self.processName = key.processName
+            self.port = conflict.port
+            self.pid = conflict.listener.pid
+            self.owner = conflict.holderLabel
+            self.holder = conflict.managedHolder
+        }
     }
 
     struct PendingStartAllConflicts: Identifiable {
         let projectID: String
         let projectName: String
-        let items: [Conflict]
+        let items: [PortPlanner.RuntimeConflict]
         var id: String { projectID }
     }
 
     struct PendingKill: Identifiable {
         let listener: Listener
         var id: String { listener.id }
-    }
-
-    struct Conflict: Identifiable {
-        let projectName: String
-        let processName: String
-        let port: Int
-        let pid: pid_t
-        let owner: String
-        var id: String { "\(projectName)/\(processName)/\(port)" }
     }
 
     private var cancellables = Set<AnyCancellable>()
@@ -76,32 +81,100 @@ final class AppState: ObservableObject {
     var managedRunningCount: Int { supervisor.runningCount() }
     var managedPIDs: Set<pid_t> { supervisor.managedPIDs() }
 
-    var conflicts: [Conflict] {
-        let managed = supervisor.managedPIDs()
-        var result: [Conflict] = []
-        for project in registry.projects {
-            for definition in project.processes {
-                guard let port = definition.port else { continue }
-                if let listener = portObserver.foreignListener(on: port, managedPIDs: managed) {
-                    result.append(Conflict(projectName: project.name, processName: definition.name,
-                                           port: port, pid: listener.pid, owner: listener.processName))
-                }
-            }
-        }
-        return result
+    /// Every project's claimed port currently held by a foreign process or by
+    /// another project's managed process.
+    var conflicts: [PortPlanner.RuntimeConflict] {
+        PortPlanner.runtimeConflicts(projects: registry.projects,
+                                     listeners: portObserver.listeners,
+                                     managedHolder: { pid in self.managedHolder(forPID: pid) })
+    }
+
+    /// Ports claimed by two or more projects — a conflict waiting to happen
+    /// the first time both run at the same time.
+    var staticOverlaps: [PortPlanner.StaticOverlap] {
+        PortPlanner.staticOverlaps(projects: registry.projects)
     }
 
     var hasVisibleConflict: Bool { !conflicts.isEmpty }
+
+    /// Which managed project/process a PID belongs to, if any. Listeners are
+    /// usually grandchildren of the tracked PID (`zsh -lc` → `uv run` →
+    /// `python` …), so this also walks the ancestor chain — otherwise Harbor
+    /// would flag its own running processes as foreign port conflicts.
+    func managedHolder(forPID pid: pid_t) -> PortPlanner.ManagedHolder? {
+        var key = supervisor.key(forPID: pid)
+        if key == nil {
+            let parents = Dictionary(ProcessKiller.processTable().map { ($0.pid, $0.ppid) },
+                                     uniquingKeysWith: { first, _ in first })
+            var ancestor = parents[pid]
+            var steps = 0
+            while let current = ancestor, current > 1, steps < 64 {
+                if let found = supervisor.key(forPID: current) {
+                    key = found
+                    break
+                }
+                ancestor = parents[current]
+                steps += 1
+            }
+        }
+        guard let key else { return nil }
+        let projectName = registry.projects.first(where: { $0.id == key.projectID })?.name ?? key.projectID
+        return PortPlanner.ManagedHolder(projectID: key.projectID, projectName: projectName,
+                                         processName: key.processName)
+    }
+
+    /// True for PIDs Harbor manages directly or through a descendant process.
+    func isManagedOrDescendant(_ pid: pid_t) -> Bool {
+        managedHolder(forPID: pid) != nil
+    }
+
+    /// Port numbers free across every registered project and current listener.
+    func suggestedFreePorts(count: Int = 5, from base: Int = 8000) -> [Int] {
+        var taken = Set(portObserver.listeners.map(\.port))
+        for project in registry.projects {
+            taken.formUnion(project.claimedPorts)
+        }
+        return PortPlanner.suggestFreePorts(count: count, from: base, taken: taken)
+    }
+
+    /// Static overlaps the config at `root` (if parseable) would create
+    /// against the already-registered projects.
+    func overlapsWhenAdding(root: URL) -> [PortPlanner.StaticOverlap] {
+        guard case .success(let parsed) = HarborConfigParser.parse(root: root) else { return [] }
+        let candidate = Project(root: root, name: parsed.name, processes: parsed.processes,
+                                portClaims: parsed.portClaims,
+                                configFileName: parsed.configName, configError: nil)
+        let candidatePorts = candidate.claimedPorts
+        return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
+            .filter { candidatePorts.contains($0.port) }
+    }
+
+    /// Static overlaps a draft TOML (import editor) would create against the
+    /// already-registered projects. The draft's own name is stripped from the
+    /// project lists for direct display.
+    func overlapsInDraft(_ text: String) -> [PortPlanner.StaticOverlap] {
+        guard let parsed = try? HarborConfigParser.parse(text: text) else { return [] }
+        let candidate = Project(root: URL(fileURLWithPath: "/harbor-draft"), name: parsed.name ?? "draft",
+                                processes: parsed.processes, portClaims: parsed.portClaims,
+                                configFileName: nil, configError: nil)
+        let candidatePorts = candidate.claimedPorts
+        return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
+            .filter { candidatePorts.contains($0.port) }
+            .map { PortPlanner.StaticOverlap(port: $0.port,
+                                             projects: $0.projects.filter { $0 != candidate.name }) }
+    }
 
     // MARK: - Process actions
 
     func start(project: Project, definition: ProcessDefinition, force: Bool = false) {
         let key = ProcessKey(projectID: project.id, processName: definition.name)
-        if !force, let port = definition.port,
-           let foreign = portObserver.foreignListener(on: port, managedPIDs: supervisor.managedPIDs()) {
-            pendingConflict = PendingConflict(key: key, processName: definition.name,
-                                              port: port, pid: foreign.pid, owner: foreign.processName)
-            return
+        if !force, let port = definition.port {
+            let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
+                                                 managedHolder: { pid in self.managedHolder(forPID: pid) })
+            if let conflict = blockers.first(where: { $0.port == port }) {
+                pendingConflict = PendingConflict(key: key, from: conflict)
+                return
+            }
         }
         NotificationService.requestAuthorizationIfNeeded()
         supervisor.start(key: key, definition: definition, projectRoot: project.root, userInitiated: true)
@@ -121,18 +194,50 @@ final class AppState: ObservableObject {
         pendingConflict = nil
     }
 
+    /// "Free the port, then start": stop the managed holder or kill the
+    /// foreign process tree, then start the requested process.
+    func confirmPendingConflictFreeingPort() {
+        guard let pending = pendingConflict else { return }
+        pendingConflict = nil
+        guard let project = registry.projects.first(where: { $0.id == pending.key.projectID }),
+              let definition = project.processes.first(where: { $0.name == pending.key.processName }) else { return }
+        NotificationService.requestAuthorizationIfNeeded()
+        Task {
+            guard await freePortHolder(managedHolder: pending.holder, pid: pending.pid) else { return }
+            await portObserver.refresh()
+            start(project: project, definition: definition, force: true)
+            NotificationService.notify(title: "Harbor: port \(pending.port) freed",
+                                       body: "Port \(pending.port) was freed and \"\(definition.name)\" started.")
+        }
+    }
+
+    /// Stops a managed holder, or kills a foreign process tree. Returns false
+    /// when a foreign holder could not be terminated.
+    private func freePortHolder(managedHolder holder: PortPlanner.ManagedHolder?, pid: pid_t) async -> Bool {
+        if let holder {
+            await supervisor.stop(key: ProcessKey(projectID: holder.projectID, processName: holder.processName))
+        } else {
+            let result = await ProcessKiller.terminateTree(rootPID: pid, grace: 2.0)
+            if case .failure(let error) = result {
+                lastKillError = error.message
+                return false
+            }
+        }
+        return true
+    }
+
     /// "Start all" — first checks every process; if any declared port is held by a
     /// foreign PID, nothing starts until the user confirms.
     func startProjectWithConfirmation(_ project: Project) {
-        let managed = supervisor.managedPIDs()
-        var found: [Conflict] = []
+        let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
+                                             managedHolder: { pid in self.managedHolder(forPID: pid) })
+        var found: [PortPlanner.RuntimeConflict] = []
         for definition in project.processes {
             guard let port = definition.port else { continue }
             let state = supervisor.status(for: ProcessKey(projectID: project.id, processName: definition.name)).state
             guard !state.isRunningLike, state != .stopping else { continue }
-            if let foreign = portObserver.foreignListener(on: port, managedPIDs: managed) {
-                found.append(Conflict(projectName: project.name, processName: definition.name,
-                                      port: port, pid: foreign.pid, owner: foreign.processName))
+            if let conflict = blockers.first(where: { $0.port == port }) {
+                found.append(conflict)
             }
         }
         if found.isEmpty {
@@ -153,16 +258,37 @@ final class AppState: ObservableObject {
         pendingStartAllConflicts = nil
     }
 
-    /// Starts every stopped/failed process in the project (sequential is fine).
-    func startProject(_ project: Project) {
+    /// "Free the ports, then start all": stop/kill every holder, refresh the
+    /// port snapshot, then start the whole project.
+    func confirmPendingStartAllConflictsFreeingPorts() {
+        guard let pending = pendingStartAllConflicts else { return }
+        pendingStartAllConflicts = nil
+        guard let project = registry.projects.first(where: { $0.id == pending.projectID }) else { return }
         NotificationService.requestAuthorizationIfNeeded()
-        let managed = supervisor.managedPIDs()
+        Task {
+            for conflict in pending.items {
+                _ = await freePortHolder(managedHolder: conflict.managedHolder,
+                                         pid: conflict.listener.pid)
+            }
+            await portObserver.refresh()
+            startProject(project, force: true)
+        }
+    }
+
+    /// Starts every stopped/failed process in the project (sequential is fine).
+    /// With `force`, blocked processes start anyway instead of being skipped.
+    func startProject(_ project: Project, force: Bool = false) {
+        NotificationService.requestAuthorizationIfNeeded()
+        let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
+                                             managedHolder: { pid in self.managedHolder(forPID: pid) })
         for definition in project.processes {
             let key = ProcessKey(projectID: project.id, processName: definition.name)
             let state = supervisor.status(for: key).state
             guard !state.isRunningLike, state != .stopping else { continue }
-            if let port = definition.port, let foreign = portObserver.foreignListener(on: port, managedPIDs: managed) {
-                supervisor.logBuffer(for: key).appendLine("— Harbor: not starting, port \(port) is in use by \(foreign.processName) (PID \(foreign.pid)) —")
+            if let port = definition.port, !force,
+               let conflict = blockers.first(where: { $0.port == port }) {
+                supervisor.logBuffer(for: key).appendLine(
+                    "— Harbor: not starting, port \(port) is held by \(conflict.holderLabel) (PID \(conflict.listener.pid)) —")
                 continue
             }
             supervisor.start(key: key, definition: definition, projectRoot: project.root, userInitiated: true)
@@ -192,9 +318,14 @@ final class AppState: ObservableObject {
     // MARK: - Kill by port
 
     func requestKill(listener: Listener) {
-        if supervisor.managedPIDs().contains(listener.pid) {
-            // Our own process — route through the supervisor so state stays in sync.
-            kill(listener: listener)
+        if let holder = managedHolder(forPID: listener.pid) {
+            // Ours — possibly a descendant of the tracked PID (e.g. the
+            // python under `zsh -lc …`). Route through the supervisor so
+            // state stays in sync and the whole tree stops cleanly.
+            Task {
+                await supervisor.stop(key: ProcessKey(projectID: holder.projectID,
+                                                      processName: holder.processName))
+            }
         } else {
             pendingKill = PendingKill(listener: listener)
         }
@@ -238,8 +369,8 @@ final class AppState: ObservableObject {
         case missingConfig
     }
 
-    func addProject(root: URL, createTemplateIfMissing: Bool) -> Result<AddOutcome, HarborError> {
-        switch registry.add(root: root, createTemplateIfMissing: createTemplateIfMissing) {
+    func addProject(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int? = nil) -> Result<AddOutcome, HarborError> {
+        switch registry.add(root: root, createTemplateIfMissing: createTemplateIfMissing, suggestedPort: suggestedPort) {
         case .success(let project):
             return .success(.added(project))
         case .failure(let error as ProjectRegistry.AddError) where error == .missingConfig:

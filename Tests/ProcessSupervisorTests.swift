@@ -35,6 +35,17 @@ final class ProcessSupervisorTests: XCTestCase {
         return key
     }
 
+    func testKeyForPIDResolvesManagedProcessOnlyWhileRunning() async throws {
+        let key = start("tracked", command: "sleep 30")
+        try await Task.sleep(nanoseconds: 800_000_000)
+        let pid = try XCTUnwrap(supervisor.status(for: key).pid)
+        XCTAssertEqual(supervisor.key(forPID: pid), key)
+
+        await supervisor.stop(key: key)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertNil(supervisor.key(forPID: pid), "PID mapping must clear after stop")
+    }
+
     func testRunsWithConfiguredWorkingDirectoryAndEnv() async throws {
         let key = start("cwdcheck", command: "pwd > out.txt; echo $HARBOR_TEST_VAR >> out.txt; sleep 30",
                         cwd: "sub", env: ["HARBOR_TEST_VAR": "hello42"])
