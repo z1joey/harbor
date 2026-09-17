@@ -79,6 +79,27 @@ Commands run inside a **login shell** (`/bin/zsh -lc`), so your usual PATH
 (with line/column); the project stays registered with a visible error banner
 until fixed.
 
+### Automatic ports
+
+Set `port = "auto"` to let Harbor pick a free port from **8100–9999** on each
+start (nothing is persisted — the number changes every run). Harbor injects the
+chosen port as the `PORT` environment variable (override the name with
+`port_env`). Reference it in your command via `$PORT`:
+
+```toml
+[[process]]
+name = "api"
+command = "uv run uvicorn app.main:app --reload --port $PORT"
+port = "auto"
+ready_url = "http://127.0.0.1:${port}/health"
+```
+
+`${port}` in `ready_url` is only allowed with `port = "auto"`. After ~5s,
+Harbor checks that the process tree is listening on the assigned port; if it
+bound somewhere else (e.g. the command ignored `$PORT`), an orange badge appears
+on the process row. Auto ports do not participate in pre-start conflict checks —
+Harbor always scans for a free port at start time.
+
 ## Ownership & safety rules
 
 - **Manage** (start/stop/restart/logs): only processes Harbor itself spawned,
@@ -117,7 +138,7 @@ until fixed.
 
 ## Testing
 
-The `HarborTests` target (63 XCTests) compiles the real service sources
+The `HarborTests` target (84 XCTests) compiles the real service sources
 (`App/Models`, `App/Services`) unhosted, so tests run fast without launching
 the app. They cover the TOML parser (incl. `[[port_claim]]`), project
 registry store, lsof output parsing and dedupe, the port planner (runtime

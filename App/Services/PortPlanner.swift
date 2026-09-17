@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Pure port-conflict planning shared by the popover, project views and the
 /// ports overview. No UI, no singletons — projects, listeners and the
@@ -149,5 +150,73 @@ enum PortPlanner {
             candidate += 1
         }
         return suggestions
+    }
+
+    // MARK: - Auto port allocation
+
+    /// Default scan range for `port = "auto"` processes.
+    static let autoPortRange = 8100...9999
+
+    /// First port in `autoPortRange` not in `taken` and passing `isBindable`.
+    static func allocatePort(taken: Set<Int>, isBindable: (Int) -> Bool = isBindable) -> Int? {
+        for port in autoPortRange where !taken.contains(port) && isBindable(port) {
+            return port
+        }
+        return nil
+    }
+
+    /// Returns true when `port` can be bound on 0.0.0.0 (catches stale lsof gaps).
+    static func isBindable(_ port: Int) -> Bool {
+        guard port >= 1, port <= 65535 else { return false }
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(UInt16(port).bigEndian)
+        addr.sin_addr.s_addr = INADDR_ANY
+
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
+    }
+
+    /// Soft lint: does `command` reference the port env var (e.g. `$PORT`)?
+    static func commandReferencesPortEnv(_ command: String, envName: String) -> Bool {
+        command.contains("$" + envName)
+            || command.contains("${" + envName + "}")
+    }
+
+    /// True when the process listens on ports other than the one Harbor expects.
+    static func portMismatch(expected: Int, observed: Set<Int>) -> Bool {
+        !observed.isEmpty && !observed.contains(expected)
+    }
+
+    /// Ports an lsof snapshot attributes to `rootPID` or its descendants.
+    static func observedListeningPorts(rootPID: pid_t,
+                                       listeners: [Listener],
+                                       processTable: [(pid: pid_t, ppid: pid_t)]) -> Set<Int> {
+        let tree = Set([rootPID] + Array(ProcessKiller.descendants(of: rootPID, in: processTable)))
+        return Set(listeners.filter { tree.contains($0.pid) }.map(\.port))
+    }
+
+    /// After `grace`, returns a mismatch when the process tree listens elsewhere.
+    static func portVerification(status: ProcessStatus,
+                               definitionPort: Int?,
+                               listeners: [Listener],
+                               processTable: [(pid: pid_t, ppid: pid_t)],
+                               now: Date = Date(),
+                               grace: TimeInterval = 5) -> PortVerification? {
+        guard status.state == .running else { return nil }
+        guard let startedAt = status.startedAt, now.timeIntervalSince(startedAt) > grace else { return nil }
+        let expected = status.assignedPort ?? definitionPort
+        guard let expected, let pid = status.pid else { return nil }
+        let observed = observedListeningPorts(rootPID: pid, listeners: listeners, processTable: processTable)
+        guard portMismatch(expected: expected, observed: observed) else { return nil }
+        return PortVerification(expected: expected, observed: observed)
     }
 }

@@ -73,6 +73,15 @@ steps at the bottom.
 - [ ] AC5.7 Conflict dialogs offer "free the port & start" (stop managed holder / kill foreign tree) for single and start-all flows. (Dialog wiring is manual step M11; freeing logic reuses the verified stop/kill paths.)
 - [ ] AC5.8 Add-project shows the overlap review screen; import editors show overlap hints + free-port suggestions; template comment carries the suggested port. (Manual step M11.)
 
+## Task 6 — Auto port assignment
+
+- [x] AC6.1 `port = "auto"` parses; invalid port strings, `port_env` without auto, and `${port}` in ready_url without auto are rejected. *(service tests: ConfigParserTests auto-port cases)*
+- [x] AC6.2 Starting an auto-port process allocates from 8100–9999, injects `PORT`, and logs the assignment. *(service tests: ProcessSupervisorTests auto-port cases)*
+- [x] AC6.3 `PortPlanner.allocatePort` skips taken ports and bind-probes candidates. *(service tests: PortPlannerTests allocation cases)*
+- [x] AC6.4 After ~5s, a process listening on a port other than the assigned/declared one surfaces a verification badge. *(service tests: PortPlannerTests observedListeningPorts + portVerification grace/mismatch cases)*
+- [ ] AC6.5 Project detail shows `:auto` / `:NNNN auto`, mismatch badge, and `$PORT` lint hint; Ports Overview lists running auto ports. (Manual step M12.)
+- [ ] AC6.6 `fixtures/selftest-project` `auto-server` starts on an auto-assigned port and "Open in Browser" uses it. (Manual step M12.)
+
 ## Cross-cutting
 
 - [x] ACX.1 No force-unwrap crashes in happy path or empty states. (Repo-wide grep: no `!` force unwraps / `try!` / `as!` in `App/`; empty states handled in every list view.)
@@ -102,8 +111,8 @@ Launch a freshly built app:
   → Copy port / Copy PID → paste somewhere to verify. Type into the filter
   field (e.g. "8765" or "py") → list narrows; toggle "Mine only".
 - **M5 (AC3.5/3.7):** Register `fixtures/selftest-project` (Add Project… →
-  choose the folder). Start All → three status dots turn green and the
-  menubar icon shows "3"; Stop All → dots gray, count gone.
+  choose the folder). Start All → four status dots turn green and the
+  menubar icon shows "4"; Stop All → dots gray, count gone.
 - **M6 (AC3.6):** Start `python3 -m http.server 8123` externally, then press
   Start on the `server` process (declared port 8123) → a conflict dialog
   names the foreign PID; Cancel prevents start; "Start anyway" proceeds.
@@ -125,3 +134,8 @@ Launch a freshly built app:
   dialog names A's project · process and offers "Stop … & start" → confirming
   stops A's process and starts B's. Re-add a project whose config claims an
   overlap → the Add flow shows the review screen with free-port suggestions.
+- **M12 (AC6.5/6.6):** Start `auto-server` in the selftest project → row shows
+  `:NNNN auto`; after ~5s no mismatch badge; "Open in Browser" opens the
+  assigned URL. Ports Overview lists the port as "(auto)". Stop and restart
+  → a (possibly different) port is assigned. Optionally start a process whose
+  command ignores `$PORT` → after ~5s an orange mismatch badge appears.

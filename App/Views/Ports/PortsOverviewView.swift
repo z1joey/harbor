@@ -29,18 +29,27 @@ struct PortsOverviewView: View {
         }
         for project in appState.registry.projects {
             for definition in project.processes {
-                guard let port = definition.port else { continue }
-                register(port: port, projectName: project.name, detail: "process \(definition.name)")
+                if let port = definition.port {
+                    register(port: port, projectName: project.name, detail: "process \(definition.name)")
+                } else if definition.autoPort {
+                    let key = ProcessKey(projectID: project.id, processName: definition.name)
+                    if let assigned = appState.supervisor.status(for: key).assignedPort {
+                        register(port: assigned, projectName: project.name,
+                                 detail: "process \(definition.name) (auto)")
+                    }
+                }
             }
             for claim in project.portClaims {
                 let note = claim.note ?? "claim"
                 register(port: claim.port, projectName: project.name, detail: note)
             }
         }
+        let listeners = appState.portObserver.listeners
         var listenerByPort: [Int: Listener] = [:]
-        for listener in appState.portObserver.listeners where listenerByPort[listener.port] == nil {
+        for listener in listeners where listenerByPort[listener.port] == nil {
             listenerByPort[listener.port] = listener
         }
+        let holdersByPID = appState.managedHolders(for: listeners)
         let ports = Set(namesByPort.keys).union(listenerByPort.keys).sorted()
         return ports.map { port in
             let listener = listenerByPort[port]
@@ -48,7 +57,7 @@ struct PortsOverviewView: View {
                        projectNames: (namesByPort[port] ?? []).sorted(),
                        claimDetails: detailsByPort[port] ?? [],
                        listener: listener,
-                       managedHolder: listener.flatMap { appState.managedHolder(forPID: $0.pid) })
+                       managedHolder: listener.flatMap { holdersByPID[$0.pid] })
         }
     }
 

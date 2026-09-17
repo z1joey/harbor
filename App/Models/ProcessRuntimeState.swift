@@ -25,6 +25,16 @@ struct ProcessStatus {
     var ready: Bool?
     var exitCode: Int32?
     var restartAttempt: Int = 0
+    /// Port Harbor assigned for `port = "auto"`; cleared on stop.
+    var assignedPort: Int?
+    /// When the current run started; used for port-verification grace period.
+    var startedAt: Date?
 
     var isRunningLike: Bool { state == .running || state == .starting }
+}
+
+/// Runtime check: managed process listens on a port other than Harbor expects.
+struct PortVerification: Hashable {
+    let expected: Int
+    let observed: Set<Int>
 }

@@ -14,7 +14,7 @@ final class PortPlannerTests: XCTestCase {
         let processes = processPorts
             .map { processName, port in
                 ProcessDefinition(name: processName, command: "run \(processName)", cwd: nil,
-                                  port: port, readyURL: nil, autoRestart: false, env: [:])
+                                  port: port, autoRestart: false, env: [:])
             }
             .sorted { $0.name < $1.name }
         return Project(root: URL(fileURLWithPath: "/tmp/\(name)"), name: name,
@@ -152,5 +152,134 @@ final class PortPlannerTests: XCTestCase {
     func testSuggestFreePortsStopsAtPortCeiling() {
         let suggestions = PortPlanner.suggestFreePorts(count: 3, from: 65534, taken: [])
         XCTAssertEqual(suggestions, [65534, 65535])
+    }
+
+    // MARK: - Auto port allocation
+
+    func testAllocatePortSkipsTakenPorts() {
+        let port = PortPlanner.allocatePort(taken: [8100, 8101, 8102], isBindable: { _ in true })
+        XCTAssertEqual(port, 8103)
+    }
+
+    func testAllocatePortRespectsRange() {
+        var taken = Set(PortPlanner.autoPortRange)
+        taken.remove(9999)
+        let port = PortPlanner.allocatePort(taken: taken, isBindable: { _ in true })
+        XCTAssertEqual(port, 9999)
+    }
+
+    func testAllocatePortReturnsNilWhenRangeExhausted() {
+        let port = PortPlanner.allocatePort(taken: Set(PortPlanner.autoPortRange), isBindable: { _ in true })
+        XCTAssertNil(port)
+    }
+
+    func testIsBindableRejectsOccupiedPort() throws {
+        let server = try startListeningServer(on: 0)
+        defer { server.close() }
+        let boundPort = try XCTUnwrap(server.boundPort)
+        XCTAssertFalse(PortPlanner.isBindable(boundPort))
+        XCTAssertTrue(PortPlanner.isBindable(boundPort + 1))
+    }
+
+    func testCommandReferencesPortEnv() {
+        XCTAssertTrue(PortPlanner.commandReferencesPortEnv("npm run dev -- --port $PORT", envName: "PORT"))
+        XCTAssertTrue(PortPlanner.commandReferencesPortEnv("uvicorn --port ${PORT}", envName: "PORT"))
+        XCTAssertFalse(PortPlanner.commandReferencesPortEnv("python3 -m http.server 8123", envName: "PORT"))
+    }
+
+    func testPortMismatch() {
+        XCTAssertTrue(PortPlanner.portMismatch(expected: 8100, observed: [5173]))
+        XCTAssertFalse(PortPlanner.portMismatch(expected: 8100, observed: [8100]))
+        XCTAssertFalse(PortPlanner.portMismatch(expected: 8100, observed: []))
+    }
+
+    func testObservedListeningPortsWalksDescendantTree() {
+        let table: [(pid: pid_t, ppid: pid_t)] = [(1, 0), (10, 1), (11, 10)]
+        let listeners = [
+            listener(8100, 11),
+            listener(5173, 99),
+        ]
+        XCTAssertEqual(PortPlanner.observedListeningPorts(rootPID: 1, listeners: listeners, processTable: table),
+                       [8100])
+    }
+
+    func testPortVerificationRespectsGracePeriod() {
+        let now = Date()
+        let status = ProcessStatus(state: .running, pid: 10, assignedPort: 8100,
+                                   startedAt: now.addingTimeInterval(-3))
+        XCTAssertNil(PortPlanner.portVerification(
+            status: status,
+            definitionPort: nil,
+            listeners: [listener(5173, 10)],
+            processTable: [(10, 1)],
+            now: now
+        ))
+    }
+
+    func testPortVerificationDetectsMismatchAfterGrace() {
+        let now = Date()
+        let status = ProcessStatus(state: .running, pid: 10, assignedPort: 8100,
+                                   startedAt: now.addingTimeInterval(-6))
+        let verification = PortPlanner.portVerification(
+            status: status,
+            definitionPort: nil,
+            listeners: [listener(5173, 10)],
+            processTable: [(10, 1)],
+            now: now
+        )
+        XCTAssertEqual(verification?.expected, 8100)
+        XCTAssertEqual(verification?.observed, [5173])
+    }
+
+    func testPortVerificationUsesDefinitionPortWhenNotAutoAssigned() {
+        let now = Date()
+        let status = ProcessStatus(state: .running, pid: 10, startedAt: now.addingTimeInterval(-6))
+        XCTAssertNil(PortPlanner.portVerification(
+            status: status,
+            definitionPort: 8000,
+            listeners: [listener(8000, 10)],
+            processTable: [(10, 1)],
+            now: now
+        ))
+        let verification = PortPlanner.portVerification(
+            status: status,
+            definitionPort: 8000,
+            listeners: [listener(8001, 10)],
+            processTable: [(10, 1)],
+            now: now
+        )
+        XCTAssertEqual(verification?.expected, 8000)
+        XCTAssertEqual(verification?.observed, [8001])
+    }
+
+    private func startListeningServer(on port: Int) throws -> (close: () -> Void, boundPort: Int?) {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw NSError(domain: "test", code: 1) }
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(UInt16(port).bigEndian)
+        addr.sin_addr.s_addr = INADDR_ANY
+        let bindResult = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            close(fd)
+            throw NSError(domain: "test", code: 2)
+        }
+        guard listen(fd, 1) == 0 else {
+            close(fd)
+            throw NSError(domain: "test", code: 3)
+        }
+        var bound = sockaddr_in()
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let getsock = withUnsafeMutablePointer(to: &bound) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &len)
+            }
+        }
+        let boundPort = getsock == 0 ? Int(UInt16(bigEndian: bound.sin_port)) : nil
+        return (close: { close(fd) }, boundPort: boundPort)
     }
 }

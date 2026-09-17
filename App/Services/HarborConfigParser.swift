@@ -88,19 +88,46 @@ enum HarborConfigParser {
             }
 
             var port: Int?
+            var autoPort = false
             if let parsedPort = entry["port"]?.int {
                 guard parsedPort >= 1, parsedPort <= 65535 else {
                     throw HarborConfigError.invalid("Process \"\(processName)\": port \(parsedPort) is out of range (1–65535).")
                 }
                 port = parsedPort
+            } else if let portString = entry["port"]?.string {
+                if portString == "auto" {
+                    autoPort = true
+                } else {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": port must be an integer or \"auto\", not \"\(portString)\".")
+                }
             }
 
-            var readyURL: URL?
+            var portEnv = "PORT"
+            if let envName = entry["port_env"]?.string {
+                guard autoPort else {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": port_env is only allowed when port = \"auto\".")
+                }
+                guard !envName.isEmpty else {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": port_env must be a non-empty string.")
+                }
+                guard envName.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": port_env \"\(envName)\" is not a valid environment variable name.")
+                }
+                portEnv = envName
+            } else if entry["port_env"] != nil {
+                throw HarborConfigError.invalid("Process \"\(processName)\": port_env must be a string.")
+            }
+
+            var readyURLTemplate: String?
             if let urlString = entry["ready_url"]?.string {
-                guard let url = URL(string: urlString), url.scheme != nil else {
+                if urlString.contains("${port}") && !autoPort {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": ready_url \"\(urlString)\" uses ${port} but port is not \"auto\".")
+                }
+                let validateString = urlString.replacingOccurrences(of: "${port}", with: "1")
+                guard let url = URL(string: validateString), url.scheme != nil else {
                     throw HarborConfigError.invalid("Process \"\(processName)\": ready_url \"\(urlString)\" is not a valid URL.")
                 }
-                readyURL = url
+                readyURLTemplate = urlString
             }
 
             var env: [String: String] = [:]
@@ -123,7 +150,9 @@ enum HarborConfigParser {
                 command: command,
                 cwd: entry["cwd"]?.string,
                 port: port,
-                readyURL: readyURL,
+                autoPort: autoPort,
+                portEnv: portEnv,
+                readyURLTemplate: readyURLTemplate,
                 autoRestart: entry["auto_restart"]?.bool ?? false,
                 env: env
             ))
@@ -168,6 +197,10 @@ enum HarborConfigParser {
         let portComment = suggestedPort.map {
             "# port = \($0)                  # suggested: no registered project claims \($0)"
         } ?? "# port = 8000                  # optional, enables conflict detection"
+        let autoPortComment = """
+        # port = "auto"                  # Harbor picks a free port each start; use $PORT in command
+        # port_env = "PORT"              # optional env var name (default PORT)
+        """
 
         return """
         name = "\(Self.escape(projectName))"
@@ -178,7 +211,8 @@ enum HarborConfigParser {
         command = "echo \\"replace me with your dev command\\" && sleep 3600"
         # cwd = "backend"              # optional, relative to this folder
         \(portComment)
-        # ready_url = "http://127.0.0.1:8000/health"  # optional, M3 health gate
+        \(autoPortComment)
+        # ready_url = "http://127.0.0.1:8000/health"  # optional health gate; use ${port} with port = "auto"
         # auto_restart = false         # optional, restart on crash
         # env = { "FOO" = "bar" }      # optional environment overrides
 

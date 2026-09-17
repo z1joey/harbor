@@ -152,14 +152,15 @@ struct ProjectDetailView: View {
     // MARK: - Process list
 
     private var processList: some View {
-        VStack(spacing: 0) {
+        let verifications = appState.portVerifications(for: project)
+        return VStack(spacing: 0) {
             if project.processes.isEmpty {
                 emptyProcessList
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(project.processes) { definition in
-                            processRow(definition)
+                            processRow(definition, verification: verifications[definition.name])
                             Divider().padding(.leading, 12)
                         }
                     }
@@ -186,12 +187,14 @@ struct ProjectDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func processRow(_ definition: ProcessDefinition) -> some View {
+    private func processRow(_ definition: ProcessDefinition, verification: PortVerification?) -> some View {
         let key = ProcessKey(projectID: project.id, processName: definition.name)
         let status = appState.supervisor.status(for: key)
         let isSelected = selectedProcessName == definition.name
         let canStart = !status.state.isRunningLike && status.state != .stopping
         let canStop = status.state.isRunningLike || status.state == .stopping
+        let showPortLint = definition.autoPort
+            && !PortPlanner.commandReferencesPortEnv(definition.command, envName: definition.portEnv)
 
         return HStack(spacing: 10) {
             Circle()
@@ -214,6 +217,19 @@ struct ProjectDetailView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    if let verification {
+                        let observed = verification.observed.sorted().map(String.init).joined(separator: ", ")
+                        Text("listening on \(observed), expected \(verification.expected)")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .help("Command may not consume $\(definition.portEnv); the process bound a different port.")
+                    }
+                    if showPortLint {
+                        Text("$\(definition.portEnv) not in command")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .help("Add $\(definition.portEnv) to the command so Harbor's assigned port is used.")
+                    }
                 }
                 WrappingDetailText(text: definition.command, font: .caption, foreground: .secondary)
                 if let cwd = definition.cwd, !cwd.isEmpty {
@@ -221,7 +237,17 @@ struct ProjectDetailView: View {
                 }
             }
             Spacer()
-            if let port = definition.port {
+            if definition.autoPort {
+                if let assigned = status.assignedPort {
+                    Text(":\(assigned) auto")
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(":auto")
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            } else if let port = definition.port {
                 Text(":\(port)")
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -260,8 +286,8 @@ struct ProjectDetailView: View {
             LogPaneView(
                 buffer: appState.supervisor.logBuffer(for: key),
                 processName: definition.name,
-                port: definition.port,
-                readyURL: definition.readyURL,
+                port: livePort(for: definition, status: status),
+                readyURL: definition.readyURL(port: livePort(for: definition, status: status)),
                 isReady: status.ready
             )
             .frame(height: 240)
@@ -272,6 +298,10 @@ struct ProjectDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(10)
         }
+    }
+
+    private func livePort(for definition: ProcessDefinition, status: ProcessStatus) -> Int? {
+        status.assignedPort ?? definition.port
     }
 
     // MARK: - Import

@@ -68,6 +68,9 @@ final class AppState: ObservableObject {
             NotificationService.notify(title: "Harbor: process keeps crashing", body: message)
             _ = key
         }
+        supervisor.portAllocator = { [weak self] _, definition in
+            self?.allocateAutoPort(for: definition)
+        }
         portObserver.start()
         Task { await portObserver.refresh() }
 
@@ -103,10 +106,14 @@ final class AppState: ObservableObject {
     /// `python` …), so this also walks the ancestor chain — otherwise Harbor
     /// would flag its own running processes as foreign port conflicts.
     func managedHolder(forPID pid: pid_t) -> PortPlanner.ManagedHolder? {
+        let parents = Dictionary(ProcessKiller.processTable().map { ($0.pid, $0.ppid) },
+                                 uniquingKeysWith: { first, _ in first })
+        return managedHolder(forPID: pid, parents: parents)
+    }
+
+    private func managedHolder(forPID pid: pid_t, parents: [pid_t: pid_t]) -> PortPlanner.ManagedHolder? {
         var key = supervisor.key(forPID: pid)
         if key == nil {
-            let parents = Dictionary(ProcessKiller.processTable().map { ($0.pid, $0.ppid) },
-                                     uniquingKeysWith: { first, _ in first })
             var ancestor = parents[pid]
             var steps = 0
             while let current = ancestor, current > 1, steps < 64 {
@@ -131,11 +138,55 @@ final class AppState: ObservableObject {
 
     /// Port numbers free across every registered project and current listener.
     func suggestedFreePorts(count: Int = 5, from base: Int = 8000) -> [Int] {
+        let taken = autoPortTakenSet()
+        return PortPlanner.suggestFreePorts(count: count, from: base, taken: taken)
+    }
+
+    /// Ports unavailable for auto assignment: listeners, static claims, in-flight assignments.
+    private func autoPortTakenSet() -> Set<Int> {
         var taken = Set(portObserver.listeners.map(\.port))
         for project in registry.projects {
             taken.formUnion(project.claimedPorts)
         }
-        return PortPlanner.suggestFreePorts(count: count, from: base, taken: taken)
+        taken.formUnion(supervisor.assignedPorts())
+        return taken
+    }
+
+    private func allocateAutoPort(for definition: ProcessDefinition) -> Int? {
+        PortPlanner.allocatePort(taken: autoPortTakenSet(), isBindable: PortPlanner.isBindable)
+    }
+
+    /// Batch-resolve managed holders for a listener list (one process-table walk).
+    func managedHolders(for listeners: [Listener]) -> [pid_t: PortPlanner.ManagedHolder] {
+        let parents = Dictionary(ProcessKiller.processTable().map { ($0.pid, $0.ppid) },
+                                 uniquingKeysWith: { first, _ in first })
+        var result: [pid_t: PortPlanner.ManagedHolder] = [:]
+        for listener in listeners {
+            if let holder = managedHolder(forPID: listener.pid, parents: parents) {
+                result[listener.pid] = holder
+            }
+        }
+        return result
+    }
+
+    /// Port verifications for every process in a project (one process-table walk).
+    func portVerifications(for project: Project) -> [String: PortVerification] {
+        let processTable = ProcessKiller.processTable()
+        let listeners = portObserver.listeners
+        var result: [String: PortVerification] = [:]
+        for definition in project.processes {
+            let key = ProcessKey(projectID: project.id, processName: definition.name)
+            let status = supervisor.status(for: key)
+            if let verification = PortPlanner.portVerification(
+                status: status,
+                definitionPort: definition.port,
+                listeners: listeners,
+                processTable: processTable
+            ) {
+                result[definition.name] = verification
+            }
+        }
+        return result
     }
 
     /// Static overlaps the config at `root` (if parseable) would create

@@ -29,7 +29,7 @@ final class ConfigParserTests: XCTestCase {
         XCTAssertEqual(api.command, "uv run uvicorn app.main:app --reload")
         XCTAssertEqual(api.cwd, "backend")
         XCTAssertEqual(api.port, 8000)
-        XCTAssertEqual(api.readyURL?.absoluteString, "http://127.0.0.1:8000/health")
+        XCTAssertEqual(api.readyURL(port: 8000)?.absoluteString, "http://127.0.0.1:8000/health")
         XCTAssertEqual(api.autoRestart, false)
         XCTAssertEqual(api.env["FOO"], "bar")
         XCTAssertEqual(api.env["RETRIES"], "3")   // ints coerced to strings
@@ -212,10 +212,80 @@ final class ConfigParserTests: XCTestCase {
     func testTemplateParsesWithNoClaimsAndSuggestedPortIsCommentedOut() throws {
         let template = HarborConfigParser.templateText(projectName: "fresh", suggestedPort: 8123)
         XCTAssertTrue(template.contains("port = 8123"))
+        XCTAssertTrue(template.contains("port = \"auto\""))
         XCTAssertTrue(template.contains("[[port_claim]]"))
         let parsed = try HarborConfigParser.parse(text: template)
         XCTAssertEqual(parsed.processes.count, 1)
         XCTAssertTrue(parsed.portClaims.isEmpty)
         XCTAssertNil(parsed.processes[0].port)
+    }
+
+    // MARK: - port = "auto"
+
+    func testParsesAutoPort() throws {
+        let parsed = try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "uvicorn app:app --port $PORT"
+        port = "auto"
+        ready_url = "http://127.0.0.1:${port}/health"
+        """)
+        let api = try XCTUnwrap(parsed.processes.first)
+        XCTAssertTrue(api.autoPort)
+        XCTAssertNil(api.port)
+        XCTAssertEqual(api.portEnv, "PORT")
+        XCTAssertEqual(api.readyURLTemplate, "http://127.0.0.1:${port}/health")
+        XCTAssertEqual(api.readyURL(port: 8102)?.absoluteString, "http://127.0.0.1:8102/health")
+    }
+
+    func testParsesCustomPortEnv() throws {
+        let parsed = try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "web"
+        command = "npm run dev -- --port $APP_PORT"
+        port = "auto"
+        port_env = "APP_PORT"
+        """)
+        let web = try XCTUnwrap(parsed.processes.first)
+        XCTAssertEqual(web.portEnv, "APP_PORT")
+    }
+
+    func testInvalidPortStringIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "run"
+        port = "dynamic"
+        """))
+    }
+
+    func testPortEnvWithoutAutoIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "run"
+        port = 8000
+        port_env = "PORT"
+        """))
+    }
+
+    func testReadyURLPortPlaceholderWithoutAutoIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "run"
+        port = 8000
+        ready_url = "http://127.0.0.1:${port}/"
+        """))
+    }
+
+    func testInvalidPortEnvNameIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "run"
+        port = "auto"
+        port_env = "bad-name"
+        """))
     }
 }
