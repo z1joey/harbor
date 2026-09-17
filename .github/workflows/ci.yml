@@ -81,12 +81,18 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "Harbor-$VERSION.zip"
+          STAGING="build/release-staging"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          ditto "$APP" "$STAGING/Harbor.app"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "Harbor $VERSION" -srcfolder "$STAGING" -ov -format UDZO "Harbor-$VERSION.dmg"
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "Harbor-${VERSION}.zip" \
+          gh release create "$GITHUB_REF_NAME" "Harbor-${VERSION}.zip" "Harbor-${VERSION}.dmg" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Harbor $GITHUB_REF_NAME" \
             --generate-notes
