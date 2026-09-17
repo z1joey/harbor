@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "HarborCore", targets: ["HarborCore"]),
+        .executable(name: "harbor-tui", targets: ["harbor-tui"]),
     ],
     dependencies: [
         .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
@@ -18,9 +19,26 @@ let package = Package(
                 .product(name: "TOMLKit", package: "TOMLKit")
             ]
         ),
+        // Terminal rendering + widgets. Kept separate from the executable so
+        // the unit tests can link it without dragging in a main.swift.
+        .target(
+            name: "HarborTUIKit",
+            dependencies: ["HarborCore"]
+        ),
+        .executableTarget(
+            name: "harbor-tui",
+            dependencies: [
+                "HarborTUIKit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
+        ),
         .testTarget(
             name: "HarborCoreTests",
             dependencies: ["HarborCore"]
+        ),
+        .testTarget(
+            name: "HarborTUIKitTests",
+            dependencies: ["HarborTUIKit"]
         ),
     ]
 )
