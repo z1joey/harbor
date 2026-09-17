@@ -12,6 +12,7 @@ struct ProjectsSidebarView: View {
                     Text("No projects")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .contextMenu { addProjectContextMenu() }
                 }
                 ForEach(appState.registry.projects) { project in
                     sidebarButton(
@@ -19,6 +20,8 @@ struct ProjectsSidebarView: View {
                         label: { projectRow(project) }
                     )
                     .contextMenu {
+                        addProjectContextMenu()
+                        Divider()
                         Button("Reveal in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([project.root])
                         }
@@ -71,6 +74,14 @@ struct ProjectsSidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .contextMenu { addProjectContextMenu() }
+    }
+
+    @ViewBuilder
+    private func addProjectContextMenu() -> some View {
+        Button("Add Project…") {
+            appState.showAddProjectSheet = true
+        }
     }
 
     private func sidebarButton<ItemLabel: View>(

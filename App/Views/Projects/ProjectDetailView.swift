@@ -57,26 +57,6 @@ struct ProjectDetailView: View {
             Button("Start All") { appState.startProjectWithConfirmation(project) }
                 .disabled(project.processes.isEmpty)
             Button("Stop All") { appState.stopProject(project) }
-            Button("Remove Project", role: .destructive) {
-                appState.requestRemoveProject(project)
-            }
-            Menu {
-                Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([project.root])
-                }
-                if let configURL = project.configURL() {
-                    Button("Open \(configURL.lastPathComponent)…") {
-                        NSWorkspace.shared.open(configURL)
-                    }
-                }
-                Button("Copy path") {
-                    Pasteboard.copy(project.root.path)
-                }
-            } label: {
-                Label("More", systemImage: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
     }
 
