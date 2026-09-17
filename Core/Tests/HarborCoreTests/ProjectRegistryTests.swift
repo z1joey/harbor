@@ -1,4 +1,5 @@
 import XCTest
+@testable import HarborCore
 
 @MainActor
 final class ProjectRegistryTests: XCTestCase {

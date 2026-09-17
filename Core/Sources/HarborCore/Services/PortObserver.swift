@@ -3,15 +3,17 @@ import Foundation
 /// Polls the system for listening TCP ports via `lsof` on a background queue
 /// (~every 2 seconds) and publishes a deduplicated snapshot on the main actor.
 @MainActor
-final class PortObserver: ObservableObject {
-    @Published private(set) var listeners: [Listener] = []
-    @Published private(set) var lastError: String?
+public final class PortObserver: ObservableObject {
+    @Published public private(set) var listeners: [Listener] = []
+    @Published public private(set) var lastError: String?
 
     private let queue = DispatchQueue(label: "app.harbor.Harbor.port-observer", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pollGeneration = 0
 
-    func start(interval: TimeInterval = 2.0) {
+    public init() {}
+
+    public func start(interval: TimeInterval = 2.0) {
         guard timer == nil else { return }
         let source = DispatchSource.makeTimerSource(queue: queue)
         source.schedule(deadline: .now(), repeating: interval)
@@ -24,13 +26,13 @@ final class PortObserver: ObservableObject {
         timer = source
     }
 
-    func stopPolling() {
+    public func stopPolling() {
         timer?.cancel()
         timer = nil
     }
 
     /// Runs one lsof pass immediately (off the main thread) and publishes the result.
-    func refresh() async {
+    public func refresh() async {
         pollGeneration += 1
         let generation = pollGeneration
         let snapshot: Result<[Listener], HarborError> = await withCheckedContinuation { continuation in
@@ -49,12 +51,12 @@ final class PortObserver: ObservableObject {
         }
     }
 
-    func pidsListening(on port: Int) -> [pid_t] {
+    public func pidsListening(on port: Int) -> [pid_t] {
         Self.pidsListening(in: listeners, on: port)
     }
 
     /// The listener on `port` that is not one of Harbor's managed PIDs, if any.
-    func foreignListener(on port: Int, managedPIDs: Set<pid_t>) -> Listener? {
+    public func foreignListener(on port: Int, managedPIDs: Set<pid_t>) -> Listener? {
         Self.foreignListener(in: listeners, on: port, managedPIDs: managedPIDs)
     }
 

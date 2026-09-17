@@ -1,4 +1,5 @@
 import SwiftUI
+import HarborCore
 
 /// Planning view: every port any project claims, next to whoever is
 /// listening on it right now. Static overlaps (two projects claiming one

@@ -1,4 +1,5 @@
 import XCTest
+@testable import HarborCore
 import Darwin
 
 final class PortPlannerTests: XCTestCase {

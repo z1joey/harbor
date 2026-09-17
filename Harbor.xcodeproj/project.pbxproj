@@ -7,109 +7,45 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0102679F108A030ED37123A6 /* TOMLKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5D3F3BF80693530B2325188C /* TOMLKit */; };
 		05169522CE51D3213CAC8CFE /* ProjectDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5169676C9DF1E0DD319DA02D /* ProjectDetailView.swift */; };
 		0B312B29A13A3B3242A9CEB1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C621A42B0248C08407662585 /* NotificationService.swift */; };
-		17463B50073D54B2D23F16B2 /* ProcessRuntimeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C88A53DCE35530492B36D63D /* ProcessRuntimeState.swift */; };
-		1BB482056EE46F656F21C238 /* ConfigImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E90A45648B11289A7A4009C /* ConfigImporter.swift */; };
 		2344FBE0B31AD81B2BF3EA3A /* LogPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68A69431BD18157A250AF070 /* LogPaneView.swift */; };
-		249AED5A4A49C52D012DCC0D /* PortPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B51806E91909000C85E601 /* PortPlanner.swift */; };
-		2735EA1B6E7C38A6AAC0455F /* ProjectRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11169C7B50561A0FEA95B04E /* ProjectRegistryTests.swift */; };
 		2C8CA50428A7C0407256C1FC /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 387E1E73EE608A153ABADF72 /* MainWindowView.swift */; };
 		35406E2F0BFBE3815FFC3131 /* MenuBarPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A0F9459D865D18841BD61D /* MenuBarPopoverView.swift */; };
-		3550DEC8B3FE3612927DB41D /* ProcessKillerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A333A2E7B418CE3EE761458 /* ProcessKillerTests.swift */; };
-		369D5A730C2C02B431BF0752 /* ProcessSupervisorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00C14BC4A47C120E7C45D0FF /* ProcessSupervisorTests.swift */; };
-		3A51299137D7025357FD4B23 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C621A42B0248C08407662585 /* NotificationService.swift */; };
-		3CB77746B888EFAB8FEC02C6 /* HealthProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8818389B8A32F6D9B99680 /* HealthProbe.swift */; };
 		3E7A9A19BBB2F5E72447FAC2 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59FA1374B0B14564D830A5F /* AppState.swift */; };
-		40B797308237ADB13D7CDE03 /* PortClaim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B6177E5B6ACDC044EEDB462 /* PortClaim.swift */; };
-		44A80A8E97D1D710310A54D2 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B2573653D617F550831B54 /* Project.swift */; };
-		4CCFDB51E49FF4931BE7F9BA /* ProcessKiller.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD244F8CBCBC7A1F8F2B426E /* ProcessKiller.swift */; };
-		4E4F6FE90F35B0D3AFB2FBE9 /* LogBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878ECAC56D4FA32A7A7DCD65 /* LogBufferTests.swift */; };
 		52DE7DD4A9B6F41FF8F09F00 /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFDFEA74EE77AA7880D952 /* LaunchAtLogin.swift */; };
-		54B17E4E855BDE50CBB1EE87 /* ProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C0588C4ABD1327583E897F /* ProcessSupervisor.swift */; };
-		553CC34D9C0203567E88DB03 /* ProjectRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34179FC9346C4DFB4E918F86 /* ProjectRegistry.swift */; };
-		5E1E9EDA869035406F0066ED /* ProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C0588C4ABD1327583E897F /* ProcessSupervisor.swift */; };
-		62F9F5FF57BAD763CDAC7529 /* HarborError.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBEA159F4CFD4CD280E65EA /* HarborError.swift */; };
-		6C4635052EABA52EF831EF1B /* ProcessRuntimeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C88A53DCE35530492B36D63D /* ProcessRuntimeState.swift */; };
-		70D739D96D8443816DE98CA5 /* ConfigImporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE153E681497C9BA466490C /* ConfigImporterTests.swift */; };
-		767B5935CB24A1F9DF48BF7C /* PortPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8853739BDE282927220F9B2 /* PortPlannerTests.swift */; };
-		7758DB77AED2FCBF2C39BACA /* ConfigParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DBCF1480B6CBBEBB85B1E1 /* ConfigParserTests.swift */; };
-		7C0A4A4D1B4270FC62C8CEAE /* PortClaim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B6177E5B6ACDC044EEDB462 /* PortClaim.swift */; };
-		8086FACB1C313A555BC3E277 /* PortObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9123B244A0A12EB845795E32 /* PortObserver.swift */; };
-		810B5C65E558BD69E037D418 /* LogBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB49E63B2E9C03E67ED39C06 /* LogBuffer.swift */; };
 		829E4136C74F558EDCE1F37F /* ProjectsSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D180B88B23FF0570BE498A38 /* ProjectsSidebarView.swift */; };
 		8557CE63A5EDF65E7A28FEB3 /* ProjectConflictDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB56E0976E879E0757E7D567 /* ProjectConflictDialogs.swift */; };
-		87EEC44DAC9DD44F477400FB /* ProjectRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34179FC9346C4DFB4E918F86 /* ProjectRegistry.swift */; };
 		886AEB8DD915C21A0348EF1E /* HarborCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050854E067A31008516889D8 /* HarborCommands.swift */; };
-		A3F183419EF33919FA9B0BC0 /* ProcessDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3D5BB97A8244ADDFE5A3D3 /* ProcessDefinition.swift */; };
-		A8A7257B7E4F68A86E465979 /* TOMLKit in Frameworks */ = {isa = PBXBuildFile; productRef = FB298BA968451AE898384114 /* TOMLKit */; };
-		AC83B9084CED0A4CC056BD58 /* PortObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE1B14E33620B8B15B86C1D /* PortObserverTests.swift */; };
+		A8A7257B7E4F68A86E465979 /* HarborCore in Frameworks */ = {isa = PBXBuildFile; productRef = 98EA2D80A397ADC5AB7B6829 /* HarborCore */; };
 		B45BB1E86956462C86D82D85 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013ED848CDB4FE949F6A3CA3 /* Support.swift */; };
-		B79BD147DEB7F30F9F4D7748 /* HealthProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8818389B8A32F6D9B99680 /* HealthProbe.swift */; };
-		B8014C1FAF9AFBCED6A084C8 /* HarborError.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBEA159F4CFD4CD280E65EA /* HarborError.swift */; };
-		C0F12EC5A0BEEFDDB02FB40E /* PortObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9123B244A0A12EB845795E32 /* PortObserver.swift */; };
-		C0FFC7195FA0DAD92B10340A /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFDFEA74EE77AA7880D952 /* LaunchAtLogin.swift */; };
-		C32EAF432EC0F0011E438BF2 /* Listener.swift in Sources */ = {isa = PBXBuildFile; fileRef = E63FAE1158DAFAFCCF821EDB /* Listener.swift */; };
-		C452E14521C8EFDBC01472E1 /* LogBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB49E63B2E9C03E67ED39C06 /* LogBuffer.swift */; };
-		C6443D6F768F52CA9D3DD24D /* Listener.swift in Sources */ = {isa = PBXBuildFile; fileRef = E63FAE1158DAFAFCCF821EDB /* Listener.swift */; };
 		CF8ADA63F37E0D0163B4501E /* HarborApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 398F0A1C74D4C354D41533F2 /* HarborApp.swift */; };
 		DB55F278A130297057AF4B1F /* PortsTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2FA04ED38151DF692F10DF /* PortsTableView.swift */; };
-		E10F403B3E9DDCA04A8572FC /* ProcessKiller.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD244F8CBCBC7A1F8F2B426E /* ProcessKiller.swift */; };
 		E3080102D6001FD2C3D794B4 /* AddProjectSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B2258E30FF8174D1D0BC1F /* AddProjectSheet.swift */; };
-		E78B10874DAC38BBC8CDFCBA /* HarborConfigParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8176CCBB469C350210A8067D /* HarborConfigParser.swift */; };
-		EBB0C0C9541591F0379FD815 /* ConfigImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E90A45648B11289A7A4009C /* ConfigImporter.swift */; };
 		ECABAA541AEB0DD520383933 /* ImportDraftEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD9D57B372A9A9057092D8 /* ImportDraftEditor.swift */; };
-		EE26A8147D2A5D2A0D886133 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B2573653D617F550831B54 /* Project.swift */; };
-		F0BF86BBBC1A954EFCA7348D /* PortPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B51806E91909000C85E601 /* PortPlanner.swift */; };
 		F92C9C8C44BD84223E4B6FD2 /* PortsOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CF9540CC0A7007912151E46 /* PortsOverviewView.swift */; };
-		FB4D457CD1514FD1EDBCE5A7 /* HarborConfigParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8176CCBB469C350210A8067D /* HarborConfigParser.swift */; };
-		FD8AE6C1C42FE1711366990D /* ProcessDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3D5BB97A8244ADDFE5A3D3 /* ProcessDefinition.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		00C14BC4A47C120E7C45D0FF /* ProcessSupervisorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSupervisorTests.swift; sourceTree = "<group>"; };
 		013ED848CDB4FE949F6A3CA3 /* Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support.swift; sourceTree = "<group>"; };
 		050854E067A31008516889D8 /* HarborCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborCommands.swift; sourceTree = "<group>"; };
-		0A333A2E7B418CE3EE761458 /* ProcessKillerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessKillerTests.swift; sourceTree = "<group>"; };
-		11169C7B50561A0FEA95B04E /* ProjectRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectRegistryTests.swift; sourceTree = "<group>"; };
 		1B3BB63CADE100ED5B2F71AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1CF9540CC0A7007912151E46 /* PortsOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortsOverviewView.swift; sourceTree = "<group>"; };
-		34179FC9346C4DFB4E918F86 /* ProjectRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectRegistry.swift; sourceTree = "<group>"; };
 		387E1E73EE608A153ABADF72 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
 		398F0A1C74D4C354D41533F2 /* HarborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborApp.swift; sourceTree = "<group>"; };
-		39B2573653D617F550831B54 /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 		5169676C9DF1E0DD319DA02D /* ProjectDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDetailView.swift; sourceTree = "<group>"; };
 		68A69431BD18157A250AF070 /* LogPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogPaneView.swift; sourceTree = "<group>"; };
-		6E90A45648B11289A7A4009C /* ConfigImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigImporter.swift; sourceTree = "<group>"; };
-		6FE1B14E33620B8B15B86C1D /* PortObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortObserverTests.swift; sourceTree = "<group>"; };
-		7B6177E5B6ACDC044EEDB462 /* PortClaim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortClaim.swift; sourceTree = "<group>"; };
-		8176CCBB469C350210A8067D /* HarborConfigParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborConfigParser.swift; sourceTree = "<group>"; };
-		878ECAC56D4FA32A7A7DCD65 /* LogBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogBufferTests.swift; sourceTree = "<group>"; };
-		8C8818389B8A32F6D9B99680 /* HealthProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthProbe.swift; sourceTree = "<group>"; };
-		9123B244A0A12EB845795E32 /* PortObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortObserver.swift; sourceTree = "<group>"; };
-		A8853739BDE282927220F9B2 /* PortPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPlannerTests.swift; sourceTree = "<group>"; };
-		AFE153E681497C9BA466490C /* ConfigImporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigImporterTests.swift; sourceTree = "<group>"; };
-		B0C0588C4ABD1327583E897F /* ProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSupervisor.swift; sourceTree = "<group>"; };
+		71481134497B82751DEB1D66 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = Core; sourceTree = SOURCE_ROOT; };
 		B3CFDFEA74EE77AA7880D952 /* LaunchAtLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLogin.swift; sourceTree = "<group>"; };
 		B6DD9D57B372A9A9057092D8 /* ImportDraftEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportDraftEditor.swift; sourceTree = "<group>"; };
 		B7A0F9459D865D18841BD61D /* MenuBarPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPopoverView.swift; sourceTree = "<group>"; };
-		C0DBCF1480B6CBBEBB85B1E1 /* ConfigParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigParserTests.swift; sourceTree = "<group>"; };
 		C5B2258E30FF8174D1D0BC1F /* AddProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddProjectSheet.swift; sourceTree = "<group>"; };
 		C621A42B0248C08407662585 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
-		C7972E793D4F5BE6AF54E941 /* HarborTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HarborTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C88A53DCE35530492B36D63D /* ProcessRuntimeState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessRuntimeState.swift; sourceTree = "<group>"; };
 		D180B88B23FF0570BE498A38 /* ProjectsSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsSidebarView.swift; sourceTree = "<group>"; };
 		D59FA1374B0B14564D830A5F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
-		E63FAE1158DAFAFCCF821EDB /* Listener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Listener.swift; sourceTree = "<group>"; };
 		EB56E0976E879E0757E7D567 /* ProjectConflictDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectConflictDialogs.swift; sourceTree = "<group>"; };
-		EEBEA159F4CFD4CD280E65EA /* HarborError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborError.swift; sourceTree = "<group>"; };
 		F4A098FA2BAEE5F46EA2760B /* Harbor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Harbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		F7B51806E91909000C85E601 /* PortPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPlanner.swift; sourceTree = "<group>"; };
 		FA2FA04ED38151DF692F10DF /* PortsTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortsTableView.swift; sourceTree = "<group>"; };
-		FA3D5BB97A8244ADDFE5A3D3 /* ProcessDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDefinition.swift; sourceTree = "<group>"; };
-		FB49E63B2E9C03E67ED39C06 /* LogBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogBuffer.swift; sourceTree = "<group>"; };
-		FD244F8CBCBC7A1F8F2B426E /* ProcessKiller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessKiller.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -117,15 +53,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A8A7257B7E4F68A86E465979 /* TOMLKit in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		958A1C943D2260AA687B1F8B /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				0102679F108A030ED37123A6 /* TOMLKit in Frameworks */,
+				A8A7257B7E4F68A86E465979 /* HarborCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -143,18 +71,8 @@
 		1B1137484F52FDAEEE5E5210 /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				6E90A45648B11289A7A4009C /* ConfigImporter.swift */,
-				8176CCBB469C350210A8067D /* HarborConfigParser.swift */,
-				EEBEA159F4CFD4CD280E65EA /* HarborError.swift */,
-				8C8818389B8A32F6D9B99680 /* HealthProbe.swift */,
 				B3CFDFEA74EE77AA7880D952 /* LaunchAtLogin.swift */,
-				FB49E63B2E9C03E67ED39C06 /* LogBuffer.swift */,
 				C621A42B0248C08407662585 /* NotificationService.swift */,
-				9123B244A0A12EB845795E32 /* PortObserver.swift */,
-				F7B51806E91909000C85E601 /* PortPlanner.swift */,
-				FD244F8CBCBC7A1F8F2B426E /* ProcessKiller.swift */,
-				B0C0588C4ABD1327583E897F /* ProcessSupervisor.swift */,
-				34179FC9346C4DFB4E918F86 /* ProjectRegistry.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -163,7 +81,7 @@
 			isa = PBXGroup;
 			children = (
 				5393D253E622FEDBF8E327E2 /* App */,
-				8E5E3712AAFD04C025074BEF /* Tests */,
+				A9A79CB64777E3CC2242B5B4 /* Packages */,
 				CC43AAD20CAB978C29A392F1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -171,28 +89,12 @@
 		5393D253E622FEDBF8E327E2 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				DD00DAB541326C3047B27E89 /* Models */,
 				1B1137484F52FDAEEE5E5210 /* Services */,
 				04D30A972C9D5D8B56A57985 /* ViewModels */,
 				B89DE712A8304C345A6DF11F /* Views */,
 				1B3BB63CADE100ED5B2F71AD /* Info.plist */,
 			);
 			path = App;
-			sourceTree = "<group>";
-		};
-		8E5E3712AAFD04C025074BEF /* Tests */ = {
-			isa = PBXGroup;
-			children = (
-				AFE153E681497C9BA466490C /* ConfigImporterTests.swift */,
-				C0DBCF1480B6CBBEBB85B1E1 /* ConfigParserTests.swift */,
-				878ECAC56D4FA32A7A7DCD65 /* LogBufferTests.swift */,
-				6FE1B14E33620B8B15B86C1D /* PortObserverTests.swift */,
-				A8853739BDE282927220F9B2 /* PortPlannerTests.swift */,
-				0A333A2E7B418CE3EE761458 /* ProcessKillerTests.swift */,
-				00C14BC4A47C120E7C45D0FF /* ProcessSupervisorTests.swift */,
-				11169C7B50561A0FEA95B04E /* ProjectRegistryTests.swift */,
-			);
-			path = Tests;
 			sourceTree = "<group>";
 		};
 		A2FACBE273FB9A99D8C72FFA /* Ports */ = {
@@ -202,6 +104,14 @@
 				FA2FA04ED38151DF692F10DF /* PortsTableView.swift */,
 			);
 			path = Ports;
+			sourceTree = "<group>";
+		};
+		A9A79CB64777E3CC2242B5B4 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				71481134497B82751DEB1D66 /* Core */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 		B89DE712A8304C345A6DF11F /* Views */ = {
@@ -222,21 +132,8 @@
 			isa = PBXGroup;
 			children = (
 				F4A098FA2BAEE5F46EA2760B /* Harbor.app */,
-				C7972E793D4F5BE6AF54E941 /* HarborTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		DD00DAB541326C3047B27E89 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				E63FAE1158DAFAFCCF821EDB /* Listener.swift */,
-				7B6177E5B6ACDC044EEDB462 /* PortClaim.swift */,
-				FA3D5BB97A8244ADDFE5A3D3 /* ProcessDefinition.swift */,
-				C88A53DCE35530492B36D63D /* ProcessRuntimeState.swift */,
-				39B2573653D617F550831B54 /* Project.swift */,
-			);
-			path = Models;
 			sourceTree = "<group>";
 		};
 		E29999985FEAF84EF572A2FF /* Projects */ = {
@@ -268,30 +165,11 @@
 			);
 			name = Harbor;
 			packageProductDependencies = (
-				FB298BA968451AE898384114 /* TOMLKit */,
+				98EA2D80A397ADC5AB7B6829 /* HarborCore */,
 			);
 			productName = Harbor;
 			productReference = F4A098FA2BAEE5F46EA2760B /* Harbor.app */;
 			productType = "com.apple.product-type.application";
-		};
-		55C0EA4DEB3080BF9407B82A /* HarborTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = EDC49BC382086B2E3DD06D4E /* Build configuration list for PBXNativeTarget "HarborTests" */;
-			buildPhases = (
-				5F7782EA6387F6692F2D075C /* Sources */,
-				958A1C943D2260AA687B1F8B /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = HarborTests;
-			packageProductDependencies = (
-				5D3F3BF80693530B2325188C /* TOMLKit */,
-			);
-			productName = HarborTests;
-			productReference = C7972E793D4F5BE6AF54E941 /* HarborTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -303,10 +181,6 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					2808BCF99DF40CC4C8E70735 = {
-						DevelopmentTeam = "";
-						ProvisioningStyle = Automatic;
-					};
-					55C0EA4DEB3080BF9407B82A = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
@@ -322,7 +196,7 @@
 			mainGroup = 4B6E6FF1AAF0F1E58A96AFE0;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A54C68EBDCCE477532AA04CB /* XCRemoteSwiftPackageReference "TOMLKit" */,
+				7A962A2D8E62915C8A72FAC5 /* XCLocalSwiftPackageReference "Core" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC43AAD20CAB978C29A392F1 /* Products */;
@@ -330,77 +204,29 @@
 			projectRoot = "";
 			targets = (
 				2808BCF99DF40CC4C8E70735 /* Harbor */,
-				55C0EA4DEB3080BF9407B82A /* HarborTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
-		5F7782EA6387F6692F2D075C /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				1BB482056EE46F656F21C238 /* ConfigImporter.swift in Sources */,
-				70D739D96D8443816DE98CA5 /* ConfigImporterTests.swift in Sources */,
-				7758DB77AED2FCBF2C39BACA /* ConfigParserTests.swift in Sources */,
-				FB4D457CD1514FD1EDBCE5A7 /* HarborConfigParser.swift in Sources */,
-				B8014C1FAF9AFBCED6A084C8 /* HarborError.swift in Sources */,
-				B79BD147DEB7F30F9F4D7748 /* HealthProbe.swift in Sources */,
-				C0FFC7195FA0DAD92B10340A /* LaunchAtLogin.swift in Sources */,
-				C32EAF432EC0F0011E438BF2 /* Listener.swift in Sources */,
-				C452E14521C8EFDBC01472E1 /* LogBuffer.swift in Sources */,
-				4E4F6FE90F35B0D3AFB2FBE9 /* LogBufferTests.swift in Sources */,
-				3A51299137D7025357FD4B23 /* NotificationService.swift in Sources */,
-				40B797308237ADB13D7CDE03 /* PortClaim.swift in Sources */,
-				8086FACB1C313A555BC3E277 /* PortObserver.swift in Sources */,
-				AC83B9084CED0A4CC056BD58 /* PortObserverTests.swift in Sources */,
-				F0BF86BBBC1A954EFCA7348D /* PortPlanner.swift in Sources */,
-				767B5935CB24A1F9DF48BF7C /* PortPlannerTests.swift in Sources */,
-				A3F183419EF33919FA9B0BC0 /* ProcessDefinition.swift in Sources */,
-				E10F403B3E9DDCA04A8572FC /* ProcessKiller.swift in Sources */,
-				3550DEC8B3FE3612927DB41D /* ProcessKillerTests.swift in Sources */,
-				6C4635052EABA52EF831EF1B /* ProcessRuntimeState.swift in Sources */,
-				54B17E4E855BDE50CBB1EE87 /* ProcessSupervisor.swift in Sources */,
-				369D5A730C2C02B431BF0752 /* ProcessSupervisorTests.swift in Sources */,
-				44A80A8E97D1D710310A54D2 /* Project.swift in Sources */,
-				87EEC44DAC9DD44F477400FB /* ProjectRegistry.swift in Sources */,
-				2735EA1B6E7C38A6AAC0455F /* ProjectRegistryTests.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		95C0E0518523BE9E818074B0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				E3080102D6001FD2C3D794B4 /* AddProjectSheet.swift in Sources */,
 				3E7A9A19BBB2F5E72447FAC2 /* AppState.swift in Sources */,
-				EBB0C0C9541591F0379FD815 /* ConfigImporter.swift in Sources */,
 				CF8ADA63F37E0D0163B4501E /* HarborApp.swift in Sources */,
 				886AEB8DD915C21A0348EF1E /* HarborCommands.swift in Sources */,
-				E78B10874DAC38BBC8CDFCBA /* HarborConfigParser.swift in Sources */,
-				62F9F5FF57BAD763CDAC7529 /* HarborError.swift in Sources */,
-				3CB77746B888EFAB8FEC02C6 /* HealthProbe.swift in Sources */,
 				ECABAA541AEB0DD520383933 /* ImportDraftEditor.swift in Sources */,
 				52DE7DD4A9B6F41FF8F09F00 /* LaunchAtLogin.swift in Sources */,
-				C6443D6F768F52CA9D3DD24D /* Listener.swift in Sources */,
-				810B5C65E558BD69E037D418 /* LogBuffer.swift in Sources */,
 				2344FBE0B31AD81B2BF3EA3A /* LogPaneView.swift in Sources */,
 				2C8CA50428A7C0407256C1FC /* MainWindowView.swift in Sources */,
 				35406E2F0BFBE3815FFC3131 /* MenuBarPopoverView.swift in Sources */,
 				0B312B29A13A3B3242A9CEB1 /* NotificationService.swift in Sources */,
-				7C0A4A4D1B4270FC62C8CEAE /* PortClaim.swift in Sources */,
-				C0F12EC5A0BEEFDDB02FB40E /* PortObserver.swift in Sources */,
-				249AED5A4A49C52D012DCC0D /* PortPlanner.swift in Sources */,
 				F92C9C8C44BD84223E4B6FD2 /* PortsOverviewView.swift in Sources */,
 				DB55F278A130297057AF4B1F /* PortsTableView.swift in Sources */,
-				FD8AE6C1C42FE1711366990D /* ProcessDefinition.swift in Sources */,
-				4CCFDB51E49FF4931BE7F9BA /* ProcessKiller.swift in Sources */,
-				17463B50073D54B2D23F16B2 /* ProcessRuntimeState.swift in Sources */,
-				5E1E9EDA869035406F0066ED /* ProcessSupervisor.swift in Sources */,
-				EE26A8147D2A5D2A0D886133 /* Project.swift in Sources */,
 				8557CE63A5EDF65E7A28FEB3 /* ProjectConflictDialogs.swift in Sources */,
 				05169522CE51D3213CAC8CFE /* ProjectDetailView.swift in Sources */,
-				553CC34D9C0203567E88DB03 /* ProjectRegistry.swift in Sources */,
 				829E4136C74F558EDCE1F37F /* ProjectsSidebarView.swift in Sources */,
 				B45BB1E86956462C86D82D85 /* Support.swift in Sources */,
 			);
@@ -540,22 +366,6 @@
 			};
 			name = Release;
 		};
-		53BB3C8A0477800495AC2AE9 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				COMBINE_HIDPI_IMAGES = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.harbor.HarborTests;
-				SDKROOT = macosx;
-			};
-			name = Release;
-		};
 		677653C3AD255A2133EB3608 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -571,22 +381,6 @@
 				SDKROOT = macosx;
 			};
 			name = Release;
-		};
-		68565DD2159B592C6B5A6D72 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				COMBINE_HIDPI_IMAGES = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.harbor.HarborTests;
-				SDKROOT = macosx;
-			};
-			name = Debug;
 		};
 		D62A08C885ACC569AA2ADEE0 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -625,38 +419,19 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		EDC49BC382086B2E3DD06D4E /* Build configuration list for PBXNativeTarget "HarborTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				68565DD2159B592C6B5A6D72 /* Debug */,
-				53BB3C8A0477800495AC2AE9 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A54C68EBDCCE477532AA04CB /* XCRemoteSwiftPackageReference "TOMLKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/LebJe/TOMLKit.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.6.0;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		7A962A2D8E62915C8A72FAC5 /* XCLocalSwiftPackageReference "Core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Core;
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		5D3F3BF80693530B2325188C /* TOMLKit */ = {
+		98EA2D80A397ADC5AB7B6829 /* HarborCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A54C68EBDCCE477532AA04CB /* XCRemoteSwiftPackageReference "TOMLKit" */;
-			productName = TOMLKit;
-		};
-		FB298BA968451AE898384114 /* TOMLKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A54C68EBDCCE477532AA04CB /* XCRemoteSwiftPackageReference "TOMLKit" */;
-			productName = TOMLKit;
+			productName = HarborCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

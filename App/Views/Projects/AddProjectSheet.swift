@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HarborCore
 
 /// Add Project flow: pick a folder → register it; if there's no harbor.toml,
 /// offer to create a template or import one from Procfile / package.json.

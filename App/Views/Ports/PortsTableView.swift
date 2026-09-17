@@ -1,4 +1,5 @@
 import SwiftUI
+import HarborCore
 
 struct PortsTableView: View {
     @EnvironmentObject private var appState: AppState

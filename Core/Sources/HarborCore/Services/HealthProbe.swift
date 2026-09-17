@@ -1,9 +1,9 @@
 import Foundation
 
 /// Polls a `ready_url` with short HTTP GETs until it succeeds or times out.
-enum HealthProbe {
+public enum HealthProbe {
     /// Returns true once the URL answers with HTTP 2xx/3xx; false on timeout or cancellation.
-    static func waitUntilReady(url: URL, timeout: TimeInterval = 45) async -> Bool {
+    public static func waitUntilReady(url: URL, timeout: TimeInterval = 45) async -> Bool {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 2.5
         configuration.timeoutIntervalForResource = 3.5

@@ -1,9 +1,9 @@
 import Foundation
 
 /// A plain error carrying a user-readable message (usable as a Result failure type).
-struct HarborError: Error {
-    let message: String
-    init(_ message: String) {
+public struct HarborError: Error {
+    public let message: String
+    public init(_ message: String) {
         self.message = message
     }
 }

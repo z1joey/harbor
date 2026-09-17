@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   test:
-    name: Unit tests
+    name: Tests
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,14 +23,19 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
-      - name: Run unit tests
+      - name: Run HarborCore tests (SwiftPM)
+        working-directory: Core
+        run: swift test
+
+      - name: Build app (compile gate)
         run: |
           set -o pipefail
-          xcodebuild test \
+          xcodebuild \
             -project Harbor.xcodeproj \
             -scheme Harbor \
             -configuration Debug \
-            -destination 'platform=macOS'
+            -destination 'platform=macOS' \
+            build
 
   release:
     name: Release

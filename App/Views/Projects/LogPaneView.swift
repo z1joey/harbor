@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HarborCore
 
 /// Live log tail for one managed process: ring buffer rendered as monospaced
 /// lines, auto-scrolls to the bottom unless the user scrolls up.

@@ -194,17 +194,25 @@ it does not register the folder. After saving, open Harbor → **Add Project…*
 
 ## Testing
 
-The `HarborTests` target (84 XCTests) compiles the real service sources
-(`App/Models`, `App/Services`) unhosted, so tests run fast without launching
-the app. They cover the TOML parser (incl. `[[port_claim]]`), project
-registry store, lsof output parsing and dedupe, the port planner (runtime
-conflicts — foreign and managed holders —, static overlaps, free-port
-suggestions), the SIGTERM→SIGKILL tree kill, log ring buffers, the process
-supervisor lifecycle (cwd/env, stop, restart, auto-restart, failed state,
-PID→process lookup), and the Procfile/package.json importers.
+Core logic (config parsing, registry, ports, process supervision) lives in the
+local SwiftPM package `Core/` (`HarborCore`), shared by the GUI app and the
+upcoming TUI. The `HarborCoreTests` target (88 XCTests) covers the TOML parser
+(incl. `[[port_claim]]`), project registry store, lsof output parsing and
+dedupe, the port planner (runtime conflicts — foreign and managed holders —,
+static overlaps, free-port suggestions), the SIGTERM→SIGKILL tree kill, log
+ring buffers, the process supervisor lifecycle (cwd/env, stop, restart,
+auto-restart, failed state, PID→process lookup), and the Procfile/package.json
+importers.
 
 ```bash
-xcodebuild test -project Harbor.xcodeproj -scheme Harbor \
+cd Core && swift test
+```
+
+The GUI app itself is a compile gate (no UI tests):
+
+```bash
+xcodegen generate
+xcodebuild build -project Harbor.xcodeproj -scheme Harbor \
   -configuration Debug -destination 'platform=macOS'
 ```
 
@@ -212,9 +220,9 @@ xcodebuild test -project Harbor.xcodeproj -scheme Harbor \
 
 `.github/workflows/ci.yml` runs on GitHub Actions macOS runners:
 
-- **Pull requests** — `xcodegen generate` + the unit-test suite above; PRs must
-  pass before merge.
-- **Push to `main`** — the unit-test suite runs as a merge safety net.
+- **Pull requests** — `swift test` in `Core/` plus an app compile build;
+  PRs must pass before merge.
+- **Push to `main`** — the same checks run as a merge safety net.
 - **Releases** — pushing a version tag (`git tag v1.0.3 && git push origin
   v1.0.3`) runs the tests, then builds a Release `Harbor.app`, packages
   `Harbor-X.Y.Z.zip` and a drag-to-install `Harbor-X.Y.Z.dmg`, and publishes
@@ -225,10 +233,11 @@ xcodebuild test -project Harbor.xcodeproj -scheme Harbor \
 
 ## Development notes
 
-- Layout: `App/Models`, `App/Services` (no SwiftUI), `App/ViewModels`,
-  `App/Views` (popover, main window, ports, projects, logs, sheets),
-  `Tests/` (XCTest for models + services).
-- TOML parsing uses [TOMLKit](https://github.com/LebJe/TOMLKit) (SPM).
+- Layout: `Core/Sources/HarborCore` (Models + Services, no SwiftUI, shared with
+  the TUI), `App/ViewModels`, `App/Views` (popover, main window, ports,
+  projects, logs, sheets), `Core/Tests/HarborCoreTests` (XCTest for HarborCore).
+- TOML parsing uses [TOMLKit](https://github.com/LebJe/TOMLKit) (SPM, declared
+  in `Core/Package.swift`).
 - Logs are in-memory ring buffers (~2000 lines per process).
 - Manual acceptance checklists: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)
   (service-level ACs are also covered by the unit-test target; that file

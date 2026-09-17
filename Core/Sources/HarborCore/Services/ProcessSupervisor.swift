@@ -7,16 +7,18 @@ import Darwin
 /// Ownership: Harbor only considers a process "managed" if it spawned it here.
 /// Stop = SIGTERM the whole descendant tree, wait ~2s, SIGKILL survivors.
 @MainActor
-final class ProcessSupervisor: ObservableObject {
+public final class ProcessSupervisor: ObservableObject {
     /// Callback for "auto-restart gave up" — AppState wires it to user notifications.
-    var onAutoRestartGiveUp: ((ProcessKey, String) -> Void)?
+    public var onAutoRestartGiveUp: ((ProcessKey, String) -> Void)?
     /// Picks a free port for `port = "auto"` processes. AppState wires this to PortPlanner.
-    var portAllocator: ((ProcessKey, ProcessDefinition) -> Int?)?
+    public var portAllocator: ((ProcessKey, ProcessDefinition) -> Int?)?
 
     private(set) var logBuffers: [ProcessKey: LogBuffer] = [:]
     private var processes: [ProcessKey: ManagedProcess] = [:]
 
-    @Published private(set) var statuses: [ProcessKey: ProcessStatus] = [:]
+    @Published public private(set) var statuses: [ProcessKey: ProcessStatus] = [:]
+
+    public init() {}
 
     private let autoRestartBackoff: [TimeInterval] = [1, 2, 5]
     private let maxAutoRestartAttempts = 3
@@ -26,45 +28,45 @@ final class ProcessSupervisor: ObservableObject {
 
     // MARK: - Queries
 
-    func logBuffer(for key: ProcessKey) -> LogBuffer {
+    public func logBuffer(for key: ProcessKey) -> LogBuffer {
         if let existing = logBuffers[key] { return existing }
         let buffer = LogBuffer()
         logBuffers[key] = buffer
         return buffer
     }
 
-    func status(for key: ProcessKey) -> ProcessStatus {
+    public func status(for key: ProcessKey) -> ProcessStatus {
         statuses[key] ?? ProcessStatus()
     }
 
-    func managedPIDs() -> Set<pid_t> {
+    public func managedPIDs() -> Set<pid_t> {
         Set(processes.values.compactMap(\.pid))
     }
 
-    func managedRunningPIDs() -> [pid_t] {
+    public func managedRunningPIDs() -> [pid_t] {
         processes.values.filter { $0.state.isRunningLike }.compactMap(\.pid)
     }
 
-    func runningCount() -> Int {
+    public func runningCount() -> Int {
         processes.values.filter { $0.state.isRunningLike }.count
     }
 
     /// Ports currently assigned to running-like auto-port processes.
-    func assignedPorts() -> Set<Int> {
+    public func assignedPorts() -> Set<Int> {
         Set(processes.values.compactMap { managed in
             guard managed.state.isRunningLike, let port = managed.assignedPort else { return nil }
             return port
         })
     }
 
-    func key(forPID pid: pid_t) -> ProcessKey? {
+    public func key(forPID pid: pid_t) -> ProcessKey? {
         processes.first(where: { $0.value.pid == pid })?.key
     }
 
     // MARK: - Start
 
     @discardableResult
-    func start(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL, userInitiated: Bool = true) -> Result<Void, HarborError> {
+    public func start(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL, userInitiated: Bool = true) -> Result<Void, HarborError> {
         let managed = existingOrNewProcess(key: key, definition: definition, projectRoot: projectRoot)
         managed.definition = definition
         managed.projectRoot = projectRoot
@@ -185,7 +187,7 @@ final class ProcessSupervisor: ObservableObject {
 
     // MARK: - Stop / Restart
 
-    func stop(key: ProcessKey) async {
+    public func stop(key: ProcessKey) async {
         guard let managed = processes[key] else { return }
         guard let pid = managed.pid, managed.process != nil else {
             managed.state = .stopped
@@ -212,7 +214,7 @@ final class ProcessSupervisor: ObservableObject {
         }
     }
 
-    func restart(key: ProcessKey, projectRoot: URL) async {
+    public func restart(key: ProcessKey, projectRoot: URL) async {
         guard let managed = processes[key] else { return }
         let definition = managed.definition
         await stop(key: key)
@@ -221,7 +223,7 @@ final class ProcessSupervisor: ObservableObject {
         start(key: key, definition: definition, projectRoot: projectRoot, userInitiated: true)
     }
 
-    func stopAllRunning() async {
+    public func stopAllRunning() async {
         let runningKeys = processes.values
             .filter { $0.state.isRunningLike }
             .map(\.key)
@@ -231,7 +233,7 @@ final class ProcessSupervisor: ObservableObject {
     }
 
     /// Synchronous emergency stop used at application quit (~1s grace).
-    func emergencyStopAll() {
+    public func emergencyStopAll() {
         for pid in managedRunningPIDs() {
             ProcessKiller.emergencyStop(rootPID: pid, grace: 1.0)
         }

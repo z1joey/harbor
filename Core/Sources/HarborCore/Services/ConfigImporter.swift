@@ -2,15 +2,21 @@ import Foundation
 
 /// One-shot importers that propose `harbor.toml` contents from existing
 /// `Procfile` / `package.json` files. The user reviews the draft before saving.
-enum ConfigImporter {
-    struct Draft: Identifiable {
-        let sourceName: String
-        let notes: [String]
-        let toml: String
-        var id: String { sourceName }
+public enum ConfigImporter {
+    public struct Draft: Identifiable {
+        public let sourceName: String
+        public let notes: [String]
+        public let toml: String
+        public var id: String { sourceName }
+
+        public init(sourceName: String, notes: [String], toml: String) {
+            self.sourceName = sourceName
+            self.notes = notes
+            self.toml = toml
+        }
     }
 
-    static func drafts(in root: URL) -> [Draft] {
+    public static func drafts(in root: URL) -> [Draft] {
         var result: [Draft] = []
         let fm = FileManager.default
 
@@ -28,7 +34,7 @@ enum ConfigImporter {
         return result
     }
 
-    static func fromProcfile(_ text: String, projectName: String) -> Draft? {
+    public static func fromProcfile(_ text: String, projectName: String) -> Draft? {
         var entries: [(name: String, command: String)] = []
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -49,7 +55,7 @@ enum ConfigImporter {
                      toml: toml)
     }
 
-    static func fromPackageJSON(_ data: Data, projectName: String) -> Draft? {
+    public static func fromPackageJSON(_ data: Data, projectName: String) -> Draft? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let scripts = object["scripts"] as? [String: Any],
               !scripts.isEmpty else { return nil }
