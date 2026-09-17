@@ -39,8 +39,8 @@ open ~/Library/Developer/Xcode/DerivedData/Harbor-*/Build/Products/Debug/Harbor.
 
 You get a ferry icon in the menu bar (no Dock icon). The popover offers
 managed projects with status dots, Start/Stop all, a compact listening-ports
-list with filter and kill, and "Open Harbor…" for the full main window
-(sidebar: **Projects** | **Ports Overview** | **Listening Ports**).
+list with kill, and "Open Harbor…" for the full main window (sidebar:
+**Projects** | **Ports Overview** | **Listening Ports** — filter lives here).
 "Quit Harbor" stops all managed processes and exits.
 
 ## Registering a project
