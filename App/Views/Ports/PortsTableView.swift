@@ -38,11 +38,15 @@ struct PortsTableView: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 6)
             }
+            if let listener = selectedListener {
+                commandDetailPanel(listener)
+            }
             Divider()
             if filtered.isEmpty {
                 emptyState
             } else {
                 table
+                    .frame(maxHeight: .infinity)
             }
         }
         .confirmationDialog(
@@ -109,7 +113,11 @@ struct PortsTableView: View {
             .width(min: 60, ideal: 100)
 
             TableColumn("Command / Path") { listener in
-                TruncatingDetailText(text: listener.commandDisplay)
+                Text(listener.commandDisplay)
+                    .font(.system(.caption, design: .monospaced))
+                    .lineLimit(nil)
+                    .textSelection(.enabled)
+                    .help(listener.commandDisplay)
             }
         }
         .contextMenu(forSelectionType: Listener.ID.self) { ids in
@@ -189,6 +197,30 @@ struct PortsTableView: View {
             }
             .help("Refresh now")
         }
+    }
+
+    private func commandDetailPanel(_ listener: Listener) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Command / Path — port \(listener.port), PID \(listener.pid)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Copy command") {
+                    Pasteboard.copy(listener.commandDisplay)
+                    flash("Copied command")
+                }
+                .controlSize(.small)
+            }
+            ScrollView {
+                WrappingDetailText(text: listener.commandDisplay)
+            }
+            .frame(minHeight: 48, maxHeight: 120)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var emptyState: some View {

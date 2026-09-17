@@ -65,3 +65,51 @@ struct TruncatingDetailText: View {
             .help(text)
     }
 }
+
+/// Truncated by default; tap the chevron to expand and show the full wrapped
+/// string inline (for project paths, commands, and cwd in detail views).
+struct ExpandableDetailText: View {
+    let text: String
+    var font: Font = .caption
+    var foreground: Color = .secondary
+    var truncationMode: Text.TruncationMode = .tail
+    @State private var expanded = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(text)
+                .font(font)
+                .foregroundStyle(foreground)
+                .lineLimit(expanded ? nil : 1)
+                .truncationMode(truncationMode)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: expanded)
+                .help(text)
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(expanded ? "Collapse" : "Show full text")
+        }
+    }
+}
+
+/// Full wrapped command/path text for detail panels and expanded rows.
+struct WrappingDetailText: View {
+    let text: String
+    var font: Font = .system(.caption, design: .monospaced)
+    var foreground: Color = .primary
+
+    var body: some View {
+        Text(text)
+            .font(font)
+            .foregroundStyle(foreground)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}

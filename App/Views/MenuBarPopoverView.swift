@@ -273,7 +273,7 @@ struct MenuBarPopoverView: View {
             }
             .buttonStyle(.plain)
             if expanded {
-                TruncatingDetailText(text: listener.commandDisplay)
+                WrappingDetailText(text: listener.commandDisplay)
                     .padding(.leading, 11)
                 HStack(spacing: 8) {
                     Text("PID \(listener.pid) · \(listener.proto)")

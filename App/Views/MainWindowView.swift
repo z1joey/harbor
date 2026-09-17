@@ -69,6 +69,14 @@ struct MainWindowView: View {
                 Label("Add Project…", systemImage: "plus")
             }
         }
+        if case .project(let id) = selection,
+           let project = appState.registry.projects.first(where: { $0.id == id }) {
+            ToolbarItem {
+                Button("Remove Project", role: .destructive) {
+                    appState.requestRemoveProject(project)
+                }
+            }
+        }
         ToolbarItem {
             settingsMenu
         }

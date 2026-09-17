@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 /// Root application state: wires the port observer, project registry and
 /// process supervisor together and exposes everything the UI needs.
@@ -389,6 +390,23 @@ final class AppState: ObservableObject {
         case .success(let url): return .success(url)
         case .failure(let error): return .failure(HarborError(error.localizedDescription))
         }
+    }
+
+    /// Shows a native AppKit alert so removal is not blocked by stacked SwiftUI
+    /// dialogs (Menu + confirmationDialog/alert on macOS is unreliable).
+    func requestRemoveProject(_ project: Project) {
+        let alert = NSAlert()
+        alert.messageText = "Remove Project"
+        alert.informativeText = """
+        Harbor will forget this folder, but no files will be deleted.
+
+        \(project.root.path)
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remove \"\(project.name)\" from Harbor")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        removeProject(project)
     }
 
     func removeProject(_ project: Project) {

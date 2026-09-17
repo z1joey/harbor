@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ProjectsSidebarView: View {
     @EnvironmentObject private var appState: AppState
@@ -20,6 +21,22 @@ struct ProjectsSidebarView: View {
                         runningBadge(for: project)
                     }
                     .tag(MainWindowView.SidebarItem.project(project.id) as MainWindowView.SidebarItem?)
+                    .contextMenu {
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([project.root])
+                        }
+                        if let configURL = project.configURL() {
+                            Button("Open \(configURL.lastPathComponent)…") {
+                                NSWorkspace.shared.open(configURL)
+                            }
+                        }
+                        Divider()
+                        Button("Remove Project", role: .destructive) {
+                            DispatchQueue.main.async {
+                                appState.requestRemoveProject(project)
+                            }
+                        }
+                    }
                 }
             }
             Section("Observe") {

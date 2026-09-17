@@ -6,7 +6,6 @@ struct ProjectDetailView: View {
     let project: Project
 
     @State private var selectedProcessName: String?
-    @State private var showRemoveConfirm = false
     @State private var showImportEditor = false
     @State private var importDraft: ConfigImporter.Draft?
     @State private var importDraftText = ""
@@ -35,14 +34,6 @@ struct ProjectDetailView: View {
             )
             .environmentObject(appState)
         }
-        .alert("Remove Project", isPresented: $showRemoveConfirm) {
-            Button("Remove \"\(project.name)\" from Harbor", role: .destructive) {
-                appState.removeProject(project)
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Harbor will forget this folder, but no files will be deleted.")
-        }
     }
 
     // MARK: - Header
@@ -53,16 +44,20 @@ struct ProjectDetailView: View {
                 Text(project.name)
                     .font(.title2)
                     .fontWeight(.semibold)
-                TruncatingDetailText(
+                WrappingDetailText(
                     text: project.root.path,
-                    truncationMode: .middle
+                    font: .caption,
+                    foreground: .secondary
                 )
             }
             Spacer()
             Button("Start All") { appState.startProjectWithConfirmation(project) }
                 .disabled(project.processes.isEmpty)
             Button("Stop All") { appState.stopProject(project) }
-            Menu("More") {
+            Button("Remove Project", role: .destructive) {
+                appState.requestRemoveProject(project)
+            }
+            Menu {
                 Button("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([project.root])
                 }
@@ -71,11 +66,14 @@ struct ProjectDetailView: View {
                         NSWorkspace.shared.open(configURL)
                     }
                 }
-                Divider()
-                Button("Remove Project…", role: .destructive) {
-                    DispatchQueue.main.async { showRemoveConfirm = true }
+                Button("Copy path") {
+                    Pasteboard.copy(project.root.path)
                 }
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
     }
 
@@ -217,9 +215,9 @@ struct ProjectDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                TruncatingDetailText(text: definition.command)
+                WrappingDetailText(text: definition.command, font: .caption, foreground: .secondary)
                 if let cwd = definition.cwd, !cwd.isEmpty {
-                    TruncatingDetailText(text: "cwd: \(cwd)")
+                    WrappingDetailText(text: "cwd: \(cwd)", font: .caption, foreground: .secondary)
                 }
             }
             Spacer()
