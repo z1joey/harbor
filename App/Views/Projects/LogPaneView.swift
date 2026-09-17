@@ -16,7 +16,7 @@ struct LogPaneView: View {
 
     private var openInBrowserURL: URL? {
         if let readyURL { return readyURL }
-        if let port { return URL(string: "http://127.0.0.1:\(port)") }
+        if let port { return URL(string: "http://127.0.0.1:\(port)/") }
         return nil
     }
 

@@ -5,10 +5,51 @@ struct ProcessDefinition: Identifiable, Hashable {
     let name: String
     let command: String
     let cwd: String?
+    /// Fixed port from config (`port = 8000`). Nil when `autoPort` is true.
     let port: Int?
-    let readyURL: URL?
+    /// When true, Harbor picks a free port at each start and injects `portEnv`.
+    let autoPort: Bool
+    /// Environment variable name for the auto-assigned port (default `PORT`).
+    let portEnv: String
+    /// Raw `ready_url` template; may contain `${port}` when `autoPort` is true.
+    let readyURLTemplate: String?
     let autoRestart: Bool
     let env: [String: String]
 
     var id: String { name }
+
+    init(name: String,
+         command: String,
+         cwd: String?,
+         port: Int?,
+         autoPort: Bool = false,
+         portEnv: String = "PORT",
+         readyURLTemplate: String? = nil,
+         autoRestart: Bool = false,
+         env: [String: String] = [:]) {
+        self.name = name
+        self.command = command
+        self.cwd = cwd
+        self.port = port
+        self.autoPort = autoPort
+        self.portEnv = portEnv
+        self.readyURLTemplate = readyURLTemplate
+        self.autoRestart = autoRestart
+        self.env = env
+    }
+
+    /// Resolves `readyURLTemplate` for health probes and browser links.
+    /// `${port}` is substituted when present (requires a concrete port number).
+    func readyURL(port: Int?) -> URL? {
+        guard let template = readyURLTemplate else { return nil }
+        let resolved: String
+        if template.contains("${port}") {
+            guard let port else { return nil }
+            resolved = template.replacingOccurrences(of: "${port}", with: String(port))
+        } else {
+            resolved = template
+        }
+        guard let url = URL(string: resolved), url.scheme != nil else { return nil }
+        return url
+    }
 }

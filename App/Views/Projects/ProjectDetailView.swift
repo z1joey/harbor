@@ -6,7 +6,6 @@ struct ProjectDetailView: View {
     let project: Project
 
     @State private var selectedProcessName: String?
-    @State private var showRemoveConfirm = false
     @State private var showImportEditor = false
     @State private var importDraft: ConfigImporter.Draft?
     @State private var importDraftText = ""
@@ -19,6 +18,7 @@ struct ProjectDetailView: View {
                 errorBanner(error)
             }
             conflictBanners
+            overlapBanners
             Divider()
             processList
             Divider()
@@ -34,14 +34,6 @@ struct ProjectDetailView: View {
             )
             .environmentObject(appState)
         }
-        .alert("Remove Project", isPresented: $showRemoveConfirm) {
-            Button("Remove \"\(project.name)\" from Harbor", role: .destructive) {
-                appState.removeProject(project)
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Harbor will forget this folder, but no files will be deleted.")
-        }
     }
 
     // MARK: - Header
@@ -52,16 +44,23 @@ struct ProjectDetailView: View {
                 Text(project.name)
                     .font(.title2)
                     .fontWeight(.semibold)
-                TruncatingDetailText(
+                WrappingDetailText(
                     text: project.root.path,
-                    truncationMode: .middle
+                    font: .caption,
+                    foreground: .secondary
                 )
             }
             Spacer()
+            if appState.projectBrowserURL(project) != nil {
+                Button("Open in Browser") { appState.openProjectInBrowser(project) }
+            }
             Button("Start All") { appState.startProjectWithConfirmation(project) }
                 .disabled(project.processes.isEmpty)
             Button("Stop All") { appState.stopProject(project) }
-            Menu("More") {
+            Button("Remove Project", role: .destructive) {
+                appState.requestRemoveProject(project)
+            }
+            Menu {
                 Button("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([project.root])
                 }
@@ -70,11 +69,14 @@ struct ProjectDetailView: View {
                         NSWorkspace.shared.open(configURL)
                     }
                 }
-                Divider()
-                Button("Remove Project…", role: .destructive) {
-                    DispatchQueue.main.async { showRemoveConfirm = true }
+                Button("Copy path") {
+                    Pasteboard.copy(project.root.path)
                 }
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
     }
 
@@ -108,6 +110,28 @@ struct ProjectDetailView: View {
         .background(Color.red.opacity(0.08))
     }
 
+    /// Static overlap warning: another project already claims one of this
+    /// project's ports. Purely config-level — nothing needs to be running.
+    @ViewBuilder
+    private var overlapBanners: some View {
+        let overlaps = appState.staticOverlaps.filter { $0.projects.contains(project.name) }
+        if !overlaps.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(overlaps) { overlap in
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text("Port \(overlap.port) is also claimed by \(overlap.projects.filter { $0 != project.name }.joined(separator: ", ")). Only one project can bind it at a time.")
+                            .font(.caption)
+                        Spacer()
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color.orange.opacity(0.1))
+        }
+    }
+
     @ViewBuilder
     private var conflictBanners: some View {
         let projectConflicts = appState.conflicts.filter { $0.projectName == project.name }
@@ -117,7 +141,7 @@ struct ProjectDetailView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.yellow)
-                        Text("Port \(conflict.port) (\"\(conflict.processName)\") is already in use by \(conflict.owner) (PID \(conflict.pid)). Starting will ask for confirmation.")
+                        Text("Port \(conflict.port) is in use by \(conflict.holderLabel) (PID \(conflict.listener.pid)). Starting will ask for confirmation.")
                             .font(.caption)
                         Spacer()
                     }
@@ -131,14 +155,15 @@ struct ProjectDetailView: View {
     // MARK: - Process list
 
     private var processList: some View {
-        VStack(spacing: 0) {
+        let verifications = appState.portVerifications(for: project)
+        return VStack(spacing: 0) {
             if project.processes.isEmpty {
                 emptyProcessList
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(project.processes) { definition in
-                            processRow(definition)
+                            processRow(definition, verification: verifications[definition.name])
                             Divider().padding(.leading, 12)
                         }
                     }
@@ -165,12 +190,14 @@ struct ProjectDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func processRow(_ definition: ProcessDefinition) -> some View {
+    private func processRow(_ definition: ProcessDefinition, verification: PortVerification?) -> some View {
         let key = ProcessKey(projectID: project.id, processName: definition.name)
         let status = appState.supervisor.status(for: key)
         let isSelected = selectedProcessName == definition.name
         let canStart = !status.state.isRunningLike && status.state != .stopping
         let canStop = status.state.isRunningLike || status.state == .stopping
+        let showPortLint = definition.autoPort
+            && !PortPlanner.commandReferencesPortEnv(definition.command, envName: definition.portEnv)
 
         return HStack(spacing: 10) {
             Circle()
@@ -193,14 +220,37 @@ struct ProjectDetailView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    if let verification {
+                        let observed = verification.observed.sorted().map(String.init).joined(separator: ", ")
+                        Text("listening on \(observed), expected \(verification.expected)")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .help("Command may not consume $\(definition.portEnv); the process bound a different port.")
+                    }
+                    if showPortLint {
+                        Text("$\(definition.portEnv) not in command")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .help("Add $\(definition.portEnv) to the command so Harbor's assigned port is used.")
+                    }
                 }
-                TruncatingDetailText(text: definition.command)
+                WrappingDetailText(text: definition.command, font: .caption, foreground: .secondary)
                 if let cwd = definition.cwd, !cwd.isEmpty {
-                    TruncatingDetailText(text: "cwd: \(cwd)")
+                    WrappingDetailText(text: "cwd: \(cwd)", font: .caption, foreground: .secondary)
                 }
             }
             Spacer()
-            if let port = definition.port {
+            if definition.autoPort {
+                if let assigned = status.assignedPort {
+                    Text(":\(assigned) auto")
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(":auto")
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            } else if let port = definition.port {
                 Text(":\(port)")
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -239,8 +289,8 @@ struct ProjectDetailView: View {
             LogPaneView(
                 buffer: appState.supervisor.logBuffer(for: key),
                 processName: definition.name,
-                port: definition.port,
-                readyURL: definition.readyURL,
+                port: livePort(for: definition, status: status),
+                readyURL: definition.readyURL(port: livePort(for: definition, status: status)),
                 isReady: status.ready
             )
             .frame(height: 240)

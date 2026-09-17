@@ -56,11 +56,31 @@ steps at the bottom.
 ## Task 4 — Polish (M3)
 
 - [x] AC4.1 With `ready_url` pointing at a slow-starting server, UI shows not-ready until the URL succeeds, then ready. *(Probe verified in harness — returns true once HTTP 2xx/3xx, false on timeout; the ready badge display is manual step M7.)*
-- [ ] AC4.2 “Open in Browser” opens the correct URL. (Manual step M7; `NSWorkspace.open` on `ready_url`, else `http://127.0.0.1:<port>`.)
+- [ ] AC4.2 “Open in Browser” opens the correct URL. (Manual step M7; per-process: `ready_url`, else `http://127.0.0.1:<port>/`. Project-level: `open_process` or `open_url` in harbor.toml — menubar safari button and detail header.)
 - [x] AC4.3 `auto_restart = true`: killing the child externally causes Harbor to bring it back; user Stop does not auto-restart. *(service harness: both directions verified with 1s backoff)*
 - [x] AC4.4 Procfile/`package.json` import produces a reviewable `harbor.toml` draft the user can save. *(service harness: drafts generated and round-trip through the parser; hooks skipped; the review sheet is manual step M8.)*
 - [ ] AC4.5 Launch at Login toggle survives app restart and matches System Settings behavior. (Manual step M9 — requires registering a real login item; `SMAppService` code fails soft with a readable error.)
 - [ ] AC4.6 Crash / conflict triggers a user-visible notification permission-aware (if denied, fail soft). (Manual step M10 — notification permission prompts once; delivery is silent no-op when denied.)
+
+## Task 5 — Port planning (static overlaps + freeing)
+
+- [x] AC5.1 `[[port_claim]]` parses with optional `note`/`process`; out-of-range, duplicate, and unknown-process claims are rejected. *(service tests: ConfigParserTests port_claim cases)*
+- [x] AC5.2 A port held by another project's managed process is reported as a runtime conflict (previously invisible). *(service tests: PortPlannerTests managed-holder cases)*
+- [x] AC5.3 Ports claimed by ≥2 projects are reported as static overlaps, sorted by port. *(service tests: PortPlannerTests overlap cases)*
+- [x] AC5.4 Free-port suggestions skip all claimed and currently listening ports. *(service tests: PortPlannerTests suggestion cases)*
+- [x] AC5.5 A PID maps to its owning managed project/process while running and clears after stop. *(service test: ProcessSupervisorTests key-for-PID)*
+- [ ] AC5.6 Ports Overview shows claims, live status, holders, and overlap banners; sidebar badge counts overlaps. (Manual step M11.)
+- [ ] AC5.7 Conflict dialogs offer "free the port & start" (stop managed holder / kill foreign tree) for single and start-all flows. (Dialog wiring is manual step M11; freeing logic reuses the verified stop/kill paths.)
+- [ ] AC5.8 Add-project shows the overlap review screen; import editors show overlap hints + free-port suggestions; template comment carries the suggested port. (Manual step M11.)
+
+## Task 6 — Auto port assignment
+
+- [x] AC6.1 `port = "auto"` parses; invalid port strings, `port_env` without auto, and `${port}` in ready_url without auto are rejected. *(service tests: ConfigParserTests auto-port cases)*
+- [x] AC6.2 Starting an auto-port process allocates from 8100–9999, injects `PORT`, and logs the assignment. *(service tests: ProcessSupervisorTests auto-port cases)*
+- [x] AC6.3 `PortPlanner.allocatePort` skips taken ports and bind-probes candidates. *(service tests: PortPlannerTests allocation cases)*
+- [x] AC6.4 After ~5s, a process listening on a port other than the assigned/declared one surfaces a verification badge. *(service tests: PortPlannerTests observedListeningPorts + portVerification grace/mismatch cases)*
+- [ ] AC6.5 Project detail shows `:auto` / `:NNNN auto`, mismatch badge, and `$PORT` lint hint; Ports Overview lists running auto ports. (Manual step M12.)
+- [ ] AC6.6 `fixtures/selftest-project` `auto-server` starts on an auto-assigned port and "Open in Browser" uses it. (Manual step M12.)
 
 ## Cross-cutting
 
@@ -76,7 +96,7 @@ Launch a freshly built app:
 `open ~/Library/Developer/Xcode/DerivedData/Harbor-*/Build/Products/Debug/Harbor.app`
 
 - **M1 (AC0.4):** Click the ferry menu bar item. Popover shows a PROJECTS
-  section (empty-state text), a LISTENING PORTS section with a filter field,
+  section (empty-state text), a LISTENING PORTS section (no filter field),
   and "Open Harbor…" / "Quit Harbor". Click "Open Harbor…" — the main window
   opens with a Projects|Listening Ports sidebar. Close it; the Dock icon
   disappears again.
@@ -87,18 +107,20 @@ Launch a freshly built app:
   then Kill → a confirmation names the PID and port; confirm → row vanishes
   and the terminal process is dead. In the Ports table, select a row and use
   the Kill button — same confirmation.
-- **M4 (AC1.5/1.6):** Select a row → Copy port / Copy PID → paste somewhere to
-  verify. Type into the filter field (e.g. "8765" or "py") → list narrows;
-  toggle "Mine only".
+- **M4 (AC1.5/1.6):** In the main window's Listening Ports table, select a row
+  → Copy port / Copy PID → paste somewhere to verify. Type into the filter
+  field (e.g. "8765" or "py") → list narrows; toggle "Mine only".
 - **M5 (AC3.5/3.7):** Register `fixtures/selftest-project` (Add Project… →
-  choose the folder). Start All → three status dots turn green and the
-  menubar icon shows "3"; Stop All → dots gray, count gone.
+  choose the folder). Start All → four status dots turn green and the
+  menubar icon shows "4"; Stop All → dots gray, count gone.
 - **M6 (AC3.6):** Start `python3 -m http.server 8123` externally, then press
   Start on the `server` process (declared port 8123) → a conflict dialog
   names the foreign PID; Cancel prevents start; "Start anyway" proceeds.
 - **M7 (AC4.1/4.2):** Start the `server` process → it shows
   "running (not ready)" then "ready" once python answers; "Open in Browser"
-  opens `http://127.0.0.1:8123/`.
+  in the log pane opens `http://127.0.0.1:8123/`. Add `open_process = "server"`
+  (or `open_url`) to a project → menubar safari icon and detail "Open in Browser"
+  open the same URL.
 - **M8 (AC4.4):** Create a folder with a `Procfile` (`web: python3 -m
   http.server 8081`) → Add Project → "Import from Procfile…" → editable draft
   → "Save harbor.toml & Add" → project appears with a `web` process.
@@ -107,3 +129,15 @@ Launch a freshly built app:
 - **M10 (AC4.6):** Add `auto_restart = true` to a process, start it, `kill -9`
   the child twice → crash notification appears (first use asks permission);
   denying permission silences future ones without errors.
+- **M11 (AC5.6–5.8):** Register two projects claiming the same port (e.g. copy
+  `fixtures/sample-harbor.toml` into a second folder). Ports Overview lists
+  the port with an orange overlap banner and the sidebar badge shows "1".
+  With project A running, start the colliding process of project B → the
+  dialog names A's project · process and offers "Stop … & start" → confirming
+  stops A's process and starts B's. Re-add a project whose config claims an
+  overlap → the Add flow shows the review screen with free-port suggestions.
+- **M12 (AC6.5/6.6):** Start `auto-server` in the selftest project → row shows
+  `:NNNN auto`; after ~5s no mismatch badge; "Open in Browser" opens the
+  assigned URL. Ports Overview lists the port as "(auto)". Stop and restart
+  → a (possibly different) port is assigned. Optionally start a process whose
+  command ignores `$PORT` → after ~5s an orange mismatch badge appears.

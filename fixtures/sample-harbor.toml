@@ -12,3 +12,10 @@ name = "web"
 command = "npm run dev"
 cwd = "frontend"
 port = 5173
+
+# Ports the project relies on without a single owning process — used for
+# cross-project overlap detection and the ports overview.
+[[port_claim]]
+port = 5432
+note = "postgres"
+process = "api"

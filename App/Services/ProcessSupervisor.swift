@@ -10,6 +10,8 @@ import Darwin
 final class ProcessSupervisor: ObservableObject {
     /// Callback for "auto-restart gave up" — AppState wires it to user notifications.
     var onAutoRestartGiveUp: ((ProcessKey, String) -> Void)?
+    /// Picks a free port for `port = "auto"` processes. AppState wires this to PortPlanner.
+    var portAllocator: ((ProcessKey, ProcessDefinition) -> Int?)?
 
     private(set) var logBuffers: [ProcessKey: LogBuffer] = [:]
     private var processes: [ProcessKey: ManagedProcess] = [:]
@@ -47,6 +49,14 @@ final class ProcessSupervisor: ObservableObject {
         processes.values.filter { $0.state.isRunningLike }.count
     }
 
+    /// Ports currently assigned to running-like auto-port processes.
+    func assignedPorts() -> Set<Int> {
+        Set(processes.values.compactMap { managed in
+            guard managed.state.isRunningLike, let port = managed.assignedPort else { return nil }
+            return port
+        })
+    }
+
     func key(forPID pid: pid_t) -> ProcessKey? {
         processes.first(where: { $0.value.pid == pid })?.key
     }
@@ -72,12 +82,32 @@ final class ProcessSupervisor: ObservableObject {
             return fail(managed, message: "Working directory does not exist: \(workDirectory.path)")
         }
 
+        if definition.autoPort {
+            guard let allocator = portAllocator else {
+                return fail(managed, message: "Auto port allocation is not configured.")
+            }
+            guard let allocated = allocator(key, definition) else {
+                return fail(managed, message: "No free port in \(PortPlanner.autoPortRange.lowerBound)–\(PortPlanner.autoPortRange.upperBound).")
+            }
+            managed.assignedPort = allocated
+            managed.logBuffer.appendLine("— Harbor: assigned port \(allocated) (\(definition.portEnv)) —")
+        } else {
+            managed.assignedPort = nil
+        }
+
+        let resolvedPort = managed.assignedPort ?? definition.port
+        let resolvedReadyURL = definition.readyURL(port: resolvedPort)
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         // Login shell so the user's PATH (homebrew, uv, nvm, …) is available.
         process.arguments = ["-l", "-c", definition.command]
         process.currentDirectoryURL = workDirectory
-        process.environment = ProcessInfo.processInfo.environment.merging(definition.env) { _, override in override }
+        var mergedEnv = ProcessInfo.processInfo.environment.merging(definition.env) { _, override in override }
+        if let allocated = managed.assignedPort {
+            mergedEnv[definition.portEnv] = String(allocated)
+        }
+        process.environment = mergedEnv
         process.standardInput = FileHandle.nullDevice
 
         let outPipe = Pipe()
@@ -111,7 +141,7 @@ final class ProcessSupervisor: ObservableObject {
 
         managed.state = .starting
         managed.exitCode = nil
-        managed.ready = definition.readyURL != nil ? false : nil
+        managed.ready = resolvedReadyURL != nil ? false : nil
         managed.userInitiatedStop = false
         managed.startedAt = Date()
         managed.process = process
@@ -143,11 +173,11 @@ final class ProcessSupervisor: ObservableObject {
         buffer.appendLine("— Harbor: started \"\(definition.name)\" (PID \(managed.pid ?? 0)) in \(workDirectory.path) —")
         publish(managed)
 
-        if let readyURL = definition.readyURL {
+        if let readyURL = resolvedReadyURL {
             managed.healthTask = Task { [weak self] in
                 let ready = await HealthProbe.waitUntilReady(url: readyURL)
                 guard !Task.isCancelled else { return }
-                await self?.markReady(key: capturedKey, ready: ready)
+                await self?.markReady(key: capturedKey, ready: ready, url: readyURL)
             }
         }
         return .success(())
@@ -224,6 +254,7 @@ final class ProcessSupervisor: ObservableObject {
         managed.exitCode = exitCode
         managed.process = nil
         managed.pid = nil
+        managed.assignedPort = nil
         managed.ready = nil
         managed.healthTask?.cancel()
         managed.healthTask = nil
@@ -278,12 +309,12 @@ final class ProcessSupervisor: ObservableObject {
         publish(managed)
     }
 
-    private func markReady(key: ProcessKey, ready: Bool) {
+    private func markReady(key: ProcessKey, ready: Bool, url: URL) {
         guard let managed = processes[key], managed.state.isRunningLike else { return }
         managed.ready = ready
         managed.logBuffer.appendLine(ready
-            ? "— Harbor: health check OK (\(managed.definition.readyURL?.absoluteString ?? "")) —"
-            : "— Harbor: health check timed out (\(managed.definition.readyURL?.absoluteString ?? "")) —")
+            ? "— Harbor: health check OK (\(url.absoluteString)) —"
+            : "— Harbor: health check timed out (\(url.absoluteString)) —")
         publish(managed)
     }
 
@@ -312,6 +343,7 @@ final class ProcessSupervisor: ObservableObject {
         managed.state = .failed
         managed.process = nil
         managed.pid = nil
+        managed.assignedPort = nil
         managed.logBuffer.appendLine("— Harbor error: \(message) —")
         publish(managed)
         return .failure(HarborError(message))
@@ -323,7 +355,9 @@ final class ProcessSupervisor: ObservableObject {
             pid: managed.pid,
             ready: managed.ready,
             exitCode: managed.exitCode,
-            restartAttempt: managed.restartAttempts
+            restartAttempt: managed.restartAttempts,
+            assignedPort: managed.assignedPort,
+            startedAt: managed.startedAt
         )
     }
 }
@@ -350,6 +384,7 @@ private final class ManagedProcess {
     var userInitiatedStop = false
     var healthTask: Task<Void, Never>?
     var restartTask: Task<Void, Never>?
+    var assignedPort: Int?
 
     init(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL, logBuffer: LogBuffer) {
         self.key = key

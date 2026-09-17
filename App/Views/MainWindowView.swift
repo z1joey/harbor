@@ -6,6 +6,7 @@ struct MainWindowView: View {
 
     enum SidebarItem: Hashable {
         case ports
+        case portsOverview
         case project(String)
     }
 
@@ -18,6 +19,8 @@ struct MainWindowView: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } detail: {
             detail
+                .id(selection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar { toolbarContent }
         .sheet(isPresented: $showAddSheet) {
@@ -25,16 +28,21 @@ struct MainWindowView: View {
                 .environmentObject(appState)
         }
         .navigationTitle("Harbor")
-        .onReceive(windowKeyPublisher) { _ in
-            appState.reloadConfigsIfStale()
+        .onAppear {
+            appState.isMainWindowOpen = true
+            selectDefaultSidebarItemIfNeeded()
         }
         .onReceive(appState.registry.$projects) { projects in
             if case .project(let id) = selection,
                !projects.contains(where: { $0.id == id }) {
-                selection = .ports
+                selection = projects.first.map { .project($0.id) } ?? .ports
             }
         }
+        .onReceive(windowKeyPublisher) { _ in
+            appState.reloadConfigsIfStale()
+        }
         .onDisappear {
+            appState.isMainWindowOpen = false
             // Window closed: back to pure menubar agent (no Dock icon).
             NSApp.setActivationPolicy(.accessory)
         }
@@ -57,11 +65,20 @@ struct MainWindowView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItem(placement: .navigation) {
             Button {
                 showAddSheet = true
             } label: {
                 Label("Add Project…", systemImage: "plus")
+            }
+            .help("Add a project folder")
+        }
+        if case .project(let id) = selection,
+           let project = appState.registry.projects.first(where: { $0.id == id }) {
+            ToolbarItem {
+                Button("Remove Project", role: .destructive) {
+                    appState.requestRemoveProject(project)
+                }
             }
         }
         ToolbarItem {
@@ -86,6 +103,8 @@ struct MainWindowView: View {
         switch selection {
         case .ports:
             PortsTableView()
+        case .portsOverview:
+            PortsOverviewView()
         case .project(let id):
             projectDetail(id: id)
         case nil:
@@ -112,5 +131,12 @@ struct MainWindowView: View {
             get: { appState.launchAtLoginEnabled },
             set: { appState.toggleLaunchAtLogin($0) }
         )
+    }
+
+    /// First launch: open the first project when one exists; otherwise Listening Ports.
+    private func selectDefaultSidebarItemIfNeeded() {
+        guard selection == .ports, appState.registry.projects.isEmpty == false,
+              let first = appState.registry.projects.first else { return }
+        selection = .project(first.id)
     }
 }

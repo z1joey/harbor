@@ -61,9 +61,13 @@ final class ProjectRegistry: ObservableObject {
         switch HarborConfigParser.parse(root: root) {
         case .success(let parsed):
             return Project(root: root, name: parsed.name, processes: parsed.processes,
+                           portClaims: parsed.portClaims,
+                           openProcessName: parsed.openProcessName, openURL: parsed.openURL,
                            configFileName: parsed.configName, configError: nil)
         case .failure(let error):
             return Project(root: root, name: root.lastPathComponent, processes: [],
+                           portClaims: [],
+                           openProcessName: nil, openURL: nil,
                            configFileName: HarborConfigParser.locateConfig(in: root)?.lastPathComponent,
                            configError: error.localizedDescription)
         }
@@ -93,8 +97,9 @@ final class ProjectRegistry: ObservableObject {
     }
 
     /// Registers a project root. If the folder has no config and
-    /// `createTemplateIfMissing` is true, writes a starter `harbor.toml` first.
-    func add(root: URL, createTemplateIfMissing: Bool) -> Result<Project, Error> {
+    /// `createTemplateIfMissing` is true, writes a starter `harbor.toml` first
+    /// (`suggestedPort` is baked into the template as a conflict-free hint).
+    func add(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int? = nil) -> Result<Project, Error> {
         let root = normalizedRoot(root)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -105,7 +110,7 @@ final class ProjectRegistry: ObservableObject {
         }
         if HarborConfigParser.locateConfig(in: root) == nil {
             guard createTemplateIfMissing else { return .failure(AddError.missingConfig) }
-            switch createTemplate(root: root) {
+            switch createTemplate(root: root, suggestedPort: suggestedPort) {
             case .success: break
             case .failure(let error): return .failure(error)
             }
@@ -127,10 +132,10 @@ final class ProjectRegistry: ObservableObject {
         reloadDebounce[projectID] = nil
     }
 
-    func createTemplate(root: URL) -> Result<URL, Error> {
+    func createTemplate(root: URL, suggestedPort: Int? = nil) -> Result<URL, Error> {
         let url = root.appendingPathComponent("harbor.toml")
         do {
-            try HarborConfigParser.templateText(projectName: root.lastPathComponent)
+            try HarborConfigParser.templateText(projectName: root.lastPathComponent, suggestedPort: suggestedPort)
                 .write(to: url, atomically: true, encoding: .utf8)
             return .success(url)
         } catch {

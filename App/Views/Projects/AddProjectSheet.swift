@@ -10,6 +10,7 @@ struct AddProjectSheet: View {
     private enum Step {
         case pick
         case missingConfig(URL)
+        case reviewOverlap(URL)
         case error(String)
     }
 
@@ -18,6 +19,8 @@ struct AddProjectSheet: View {
     @State private var drafts: [ConfigImporter.Draft] = []
     @State private var importDraft: ConfigImporter.Draft?
     @State private var importDraftText = ""
+    @State private var pendingOverlaps: [PortPlanner.StaticOverlap] = []
+    @State private var overlapCandidateName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -26,6 +29,8 @@ struct AddProjectSheet: View {
                 pickStep
             case .missingConfig(let url):
                 missingConfigStep(url)
+            case .reviewOverlap(let url):
+                reviewOverlapStep(url)
             case .error(let message):
                 errorStep(message)
             }
@@ -70,15 +75,53 @@ struct AddProjectSheet: View {
                     }
                 }
             }
+            Text("Suggested free ports: \(formatPorts(appState.suggestedFreePorts()))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Back", role: .cancel) { step = .pick }
                 Button("Create Template & Add") {
-                    register(url: url, createTemplate: true)
+                    register(url: url, createTemplate: true,
+                             suggestedPort: appState.suggestedFreePorts(count: 1).first)
                 }
                 .keyboardShortcut(.defaultAction)
             }
         }
+    }
+
+    /// Shown when the folder's config claims ports that other registered
+    /// projects claim too — the user can still add it, knowingly.
+    private func reviewOverlapStep(_ url: URL) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Port Overlaps").font(.headline)
+            Text("“\(overlapCandidateName)” claims ports that other projects claim as well:")
+                .font(.callout)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(pendingOverlaps) { overlap in
+                    Label("Port \(overlap.port) — also claimed by \(overlap.projects.filter { $0 != overlapCandidateName }.joined(separator: ", "))",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Text("Only one project can bind a port at a time. Pick distinct ports per project, or let Harbor help you free them at start.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("Free right now: \(formatPorts(appState.suggestedFreePorts()))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Back", role: .cancel) { step = .pick }
+                Button("Add Anyway") { register(url: url, createTemplate: false) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    private func formatPorts(_ ports: [Int]) -> String {
+        ports.isEmpty ? "none" : ports.map(String.init).joined(separator: ", ")
     }
 
     private func errorStep(_ message: String) -> some View {
@@ -107,6 +150,16 @@ struct AddProjectSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            ForEach(appState.overlapsInDraft(importDraftText)) { overlap in
+                Label("Port \(overlap.port) is also claimed by \(overlap.projects.joined(separator: ", "))",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            Label("Free ports right now: \(appState.suggestedFreePorts(count: 3).map(String.init).joined(separator: ", "))",
+                  systemImage: "wand.and.stars")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextEditor(text: $importDraftText)
                 .font(.system(size: 11, design: .monospaced))
                 .border(Color.secondary.opacity(0.3))
@@ -138,15 +191,32 @@ struct AddProjectSheet: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         if appState.configExists(at: url) {
-            register(url: url, createTemplate: false)
+            reviewThenRegister(url: url)
         } else {
             drafts = appState.importDrafts(at: url)
             step = .missingConfig(url)
         }
     }
 
-    private func register(url: URL, createTemplate: Bool) {
-        switch appState.addProject(root: url, createTemplateIfMissing: createTemplate) {
+    /// Projects whose config claims ports that registered projects claim too
+    /// get one explicit review screen before they are added.
+    private func reviewThenRegister(url: URL) {
+        let overlaps = appState.overlapsWhenAdding(root: url)
+        guard !overlaps.isEmpty else {
+            register(url: url, createTemplate: false)
+            return
+        }
+        pendingOverlaps = overlaps
+        if case .success(let parsed) = HarborConfigParser.parse(root: url) {
+            overlapCandidateName = parsed.name
+        } else {
+            overlapCandidateName = url.lastPathComponent
+        }
+        step = .reviewOverlap(url)
+    }
+
+    private func register(url: URL, createTemplate: Bool, suggestedPort: Int? = nil) {
+        switch appState.addProject(root: url, createTemplateIfMissing: createTemplate, suggestedPort: suggestedPort) {
         case .success(.added(let project)):
             addedProject = project
             dismiss()
