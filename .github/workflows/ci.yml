@@ -74,9 +74,15 @@ jobs:
       - name: Verify version matches tag, then package
         run: |
           APP="build/Build/Products/Release/Harbor.app"
-          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
-          if [[ "$VERSION" != "${GITHUB_REF_NAME#v}" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $VERSION — bump project.yml and re-tag."
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          VERSION=$(awk '/MARKETING_VERSION:/ {print $2; exit}' project.yml)
+          if [[ "$VERSION" != "$EXPECTED" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $VERSION in project.yml — bump project.yml and re-tag."
+            exit 1
+          fi
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          if [[ "$APP_VERSION" != "$VERSION" && "$APP_VERSION" != '$(MARKETING_VERSION)' ]]; then
+            echo "::error::Built app version $APP_VERSION does not match MARKETING_VERSION $VERSION."
             exit 1
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"

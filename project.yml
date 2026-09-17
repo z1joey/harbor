@@ -35,6 +35,8 @@ targets:
       properties:
         CFBundleDisplayName: Harbor
         CFBundleName: Harbor
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.developer-tools
         LSMinimumSystemVersion: "13.0"
         LSUIElement: true
