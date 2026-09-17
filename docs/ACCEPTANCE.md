@@ -87,7 +87,7 @@ Launch a freshly built app:
 `open ~/Library/Developer/Xcode/DerivedData/Harbor-*/Build/Products/Debug/Harbor.app`
 
 - **M1 (AC0.4):** Click the ferry menu bar item. Popover shows a PROJECTS
-  section (empty-state text), a LISTENING PORTS section with a filter field,
+  section (empty-state text), a LISTENING PORTS section (no filter field),
   and "Open Harbor…" / "Quit Harbor". Click "Open Harbor…" — the main window
   opens with a Projects|Listening Ports sidebar. Close it; the Dock icon
   disappears again.
@@ -98,9 +98,9 @@ Launch a freshly built app:
   then Kill → a confirmation names the PID and port; confirm → row vanishes
   and the terminal process is dead. In the Ports table, select a row and use
   the Kill button — same confirmation.
-- **M4 (AC1.5/1.6):** Select a row → Copy port / Copy PID → paste somewhere to
-  verify. Type into the filter field (e.g. "8765" or "py") → list narrows;
-  toggle "Mine only".
+- **M4 (AC1.5/1.6):** In the main window's Listening Ports table, select a row
+  → Copy port / Copy PID → paste somewhere to verify. Type into the filter
+  field (e.g. "8765" or "py") → list narrows; toggle "Mine only".
 - **M5 (AC3.5/3.7):** Register `fixtures/selftest-project` (Add Project… →
   choose the folder). Start All → three status dots turn green and the
   menubar icon shows "3"; Stop All → dots gray, count gone.

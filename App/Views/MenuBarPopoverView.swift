@@ -5,22 +5,12 @@ struct MenuBarPopoverView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.openWindow) private var openWindow
 
-    @State private var portFilter = ""
     @State private var expandedListenerID: Listener.ID?
 
     private let maxPortRows = 8
 
-    private var filteredListeners: [Listener] {
-        // No filter while the main window is closed — the field is hidden and
-        // a stale query must not invisibly narrow the popover list.
-        let query = appState.isMainWindowOpen ? portFilter.trimmingCharacters(in: .whitespaces) : ""
-        var list = appState.portObserver.listeners
-        if !query.isEmpty {
-            list = list.filter {
-                String($0.port).contains(query) || $0.processName.localizedCaseInsensitiveContains(query)
-            }
-        }
-        return list
+    private var listeners: [Listener] {
+        appState.portObserver.listeners
     }
 
     var body: some View {
@@ -229,27 +219,18 @@ struct MenuBarPopoverView: View {
     @ViewBuilder
     private var portsSection: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("LISTENING PORTS").font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                if appState.isMainWindowOpen {
-                    TextField("Filter", text: $portFilter)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 130)
-                        .font(.caption)
-                        .controlSize(.small)
-                }
-            }
-            if filteredListeners.isEmpty {
+            Text("LISTENING PORTS").font(.caption2).foregroundStyle(.secondary)
+            let listeners = appState.portObserver.listeners
+            if listeners.isEmpty {
                 Text(appState.portObserver.lastError ?? "No listening TCP ports.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            ForEach(Array(filteredListeners.prefix(maxPortRows))) { listener in
+            ForEach(Array(listeners.prefix(maxPortRows))) { listener in
                 portRow(listener)
             }
-            if filteredListeners.count > maxPortRows {
-                Text("… \(filteredListeners.count - maxPortRows) more — open Harbor for the full list")
+            if listeners.count > maxPortRows {
+                Text("… \(listeners.count - maxPortRows) more — open Harbor for the full list")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
