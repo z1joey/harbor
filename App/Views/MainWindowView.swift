@@ -28,6 +28,12 @@ struct MainWindowView: View {
         .onReceive(windowKeyPublisher) { _ in
             appState.reloadConfigsIfStale()
         }
+        .onReceive(appState.registry.$projects) { projects in
+            if case .project(let id) = selection,
+               !projects.contains(where: { $0.id == id }) {
+                selection = .ports
+            }
+        }
         .onDisappear {
             // Window closed: back to pure menubar agent (no Dock icon).
             NSApp.setActivationPolicy(.accessory)

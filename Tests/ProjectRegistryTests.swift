@@ -50,6 +50,21 @@ final class ProjectRegistryTests: XCTestCase {
         XCTAssertEqual(second.projects.first?.processes.first?.name, "api")
     }
 
+    func testRemoveRewritesStoreFromInMemoryProjects() throws {
+        let legacyPath = projectRoot.path + "/"
+        try JSONEncoder().encode([legacyPath]).write(to: storeURL)
+
+        let registry = ProjectRegistry(storeURL: storeURL)
+        XCTAssertEqual(registry.projects.count, 1)
+        let project = try XCTUnwrap(registry.projects.first)
+
+        registry.remove(projectID: project.id)
+        XCTAssertTrue(registry.projects.isEmpty)
+
+        let stored = try JSONDecoder().decode([String].self, from: Data(contentsOf: storeURL))
+        XCTAssertTrue(stored.isEmpty)
+    }
+
     func testRemoveUnregistersButKeepsFiles() throws {
         let registry = ProjectRegistry(storeURL: storeURL)
         _ = registry.add(root: projectRoot, createTemplateIfMissing: false)

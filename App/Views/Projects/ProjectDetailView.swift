@@ -34,10 +34,7 @@ struct ProjectDetailView: View {
             )
             .environmentObject(appState)
         }
-        .confirmationDialog(
-            "Remove Project",
-            isPresented: $showRemoveConfirm
-        ) {
+        .alert("Remove Project", isPresented: $showRemoveConfirm) {
             Button("Remove \"\(project.name)\" from Harbor", role: .destructive) {
                 appState.removeProject(project)
             }
@@ -74,7 +71,9 @@ struct ProjectDetailView: View {
                     }
                 }
                 Divider()
-                Button("Remove Project…", role: .destructive) { showRemoveConfirm = true }
+                Button("Remove Project…", role: .destructive) {
+                    DispatchQueue.main.async { showRemoveConfirm = true }
+                }
             }
         }
     }

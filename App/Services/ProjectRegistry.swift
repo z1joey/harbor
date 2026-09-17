@@ -25,6 +25,15 @@ final class ProjectRegistry: ObservableObject {
 
     // MARK: - Store
 
+    /// Canonical project root path used as `Project.id` and in `projects.json`.
+    private func normalizedRoot(_ url: URL) -> URL {
+        URL(fileURLWithPath: (url.path as NSString).standardizingPath)
+    }
+
+    private func syncStoreFromMemory() {
+        writeStore(projects.map(\.id))
+    }
+
     private func readStore() -> [String] {
         guard let data = FileManager.default.contents(atPath: storeURL.path) else { return [] }
         if let paths = try? JSONDecoder().decode([String].self, from: data) {
@@ -43,7 +52,8 @@ final class ProjectRegistry: ObservableObject {
     // MARK: - Loading
 
     func load() {
-        projects = readStore().map { buildProject(root: URL(fileURLWithPath: $0)) }
+        projects = readStore().map { buildProject(root: normalizedRoot(URL(fileURLWithPath: $0))) }
+        syncStoreFromMemory()
         restartWatchers()
     }
 
@@ -85,6 +95,7 @@ final class ProjectRegistry: ObservableObject {
     /// Registers a project root. If the folder has no config and
     /// `createTemplateIfMissing` is true, writes a starter `harbor.toml` first.
     func add(root: URL, createTemplateIfMissing: Bool) -> Result<Project, Error> {
+        let root = normalizedRoot(root)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             return .failure(AddError.notADirectory)
@@ -99,11 +110,9 @@ final class ProjectRegistry: ObservableObject {
             case .failure(let error): return .failure(error)
             }
         }
-        var paths = readStore()
-        paths.append(root.path)
-        writeStore(paths)
         let project = buildProject(root: root)
         projects.append(project)
+        syncStoreFromMemory()
         watch(project: project)
         return .success(project)
     }
@@ -111,7 +120,7 @@ final class ProjectRegistry: ObservableObject {
     /// Unregisters the project — files on disk are left alone.
     func remove(projectID: String) {
         projects.removeAll { $0.id == projectID }
-        writeStore(readStore().filter { $0 != projectID })
+        syncStoreFromMemory()
         watchers[projectID]?.cancel()
         watchers[projectID] = nil
         reloadDebounce[projectID]?.cancel()
