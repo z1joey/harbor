@@ -392,6 +392,7 @@ final class AppState: ObservableObject {
     }
 
     func removeProject(_ project: Project) {
+        stopProject(project)
         registry.remove(projectID: project.id)
     }
 

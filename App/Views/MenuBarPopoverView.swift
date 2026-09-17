@@ -273,6 +273,8 @@ struct MenuBarPopoverView: View {
             }
             .buttonStyle(.plain)
             if expanded {
+                TruncatingDetailText(text: listener.commandDisplay)
+                    .padding(.leading, 11)
                 HStack(spacing: 8) {
                     Text("PID \(listener.pid) · \(listener.proto)")
                         .font(.caption)
@@ -283,6 +285,8 @@ struct MenuBarPopoverView: View {
                     Button("Copy port") { Pasteboard.copy(String(listener.port)) }
                         .controlSize(.small)
                     Button("Copy PID") { Pasteboard.copy(String(listener.pid)) }
+                        .controlSize(.small)
+                    Button("Copy command") { Pasteboard.copy(listener.commandDisplay) }
                         .controlSize(.small)
                 }
             }
