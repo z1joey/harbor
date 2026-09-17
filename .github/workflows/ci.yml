@@ -90,6 +90,11 @@ jobs:
             echo "::error::Built app version $APP_VERSION does not match MARKETING_VERSION $VERSION."
             exit 1
           fi
+          CORE_VERSION=$(sed -n 's/^public let harborVersion = "\(.*\)"/\1/p' Core/Sources/HarborCore/HarborVersion.swift)
+          if [[ "$CORE_VERSION" != "$EXPECTED" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match harborVersion $CORE_VERSION in Core/Sources/HarborCore/HarborVersion.swift — bump it and re-tag."
+            exit 1
+          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "Harbor-$VERSION.zip"
           STAGING="build/release-staging"
@@ -99,11 +104,22 @@ jobs:
           ln -s /Applications "$STAGING/Applications"
           hdiutil create -volname "Harbor $VERSION" -srcfolder "$STAGING" -ov -format UDZO "Harbor-$VERSION.dmg"
 
+      - name: Build harbor-tui (universal binary)
+        working-directory: Core
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      - name: Package harbor-tui
+        run: |
+          tar -czf "harbor-tui-$VERSION.macos-universal.tar.gz" \
+            -C Core/.build/apple/Products/Release harbor-tui
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "Harbor-${VERSION}.zip" "Harbor-${VERSION}.dmg" \
+          gh release create "$GITHUB_REF_NAME" \
+            "Harbor-${VERSION}.zip" "Harbor-${VERSION}.dmg" \
+            "harbor-tui-${VERSION}.macos-universal.tar.gz" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Harbor $GITHUB_REF_NAME" \
             --generate-notes

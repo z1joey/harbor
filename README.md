@@ -1,9 +1,10 @@
 # Harbor
 
-Native macOS menubar app for developers: **observe** every TCP listener on the
-machine (port → PID → command, kill by port) and **manage** project-defined
-dev servers (`harbor.toml`) with start/stop/restart, live logs, port-conflict
-warnings, health probes, and auto-restart.
+Native macOS dev-tool companion: **observe** every TCP listener on the machine
+(port → PID → command, kill by port) and **manage** project-defined dev
+servers (`harbor.toml`) with start/stop/restart, live logs, port-conflict
+warnings, health probes, and auto-restart. Ships in two forms that share one
+core: a SwiftUI menubar app and a terminal UI (`harbor-tui`).
 
 SwiftUI + XcodeGen, macOS 13+, menubar-first (`LSUIElement`, no Dock icon by
 default), ad-hoc signing, no background daemon — everything runs in-process.
@@ -154,6 +155,45 @@ it does not register the folder. After saving, open Harbor → **Add Project…*
 → pick the project root. Edits hot-reload; Harbor does not rewrite your app's
 `vite.config`, `.env`, or Docker files. Production deploys are unaffected;
 `port = "auto"` and `$PORT` apply only to processes Harbor starts locally.
+
+## harbor-tui (terminal UI)
+
+The same engine — same `harbor.toml` schema, same parsing, planning and stop
+semantics — in a terminal. Runs against the shared registry, so the TUI and
+the menubar app see the same projects; each supervises only the processes it
+spawned itself. Quitting the TUI stops its managed trees, exactly like
+"Quit Harbor" in the app.
+
+Build & run from source:
+
+```bash
+cd Core
+swift build
+.build/debug/harbor-tui
+```
+
+Or grab `harbor-tui-X.Y.Z.macos-universal.tar.gz` from a release and put the
+binary on your `PATH`.
+
+Keys:
+
+| Key | Action |
+|---|---|
+| `1` / `2` / `3` / `Tab` | Switch Projects / Logs / Ports panels |
+| `j` / `k` or arrows, PgUp/PgDn | Move selection (log scroll in Logs) |
+| `s` / `S` | Start process / start all for the project |
+| `x` / `X` | Stop process / stop all for the project (`x` kills a listener in Ports) |
+| `r` | Restart selected process |
+| `⏎` / `l` | Open the selected process's logs |
+| `f` / `c` | Logs: toggle follow / clear |
+| `v` / `m` / `/` | Ports: toggle overview, mine-only, filter |
+| `:` | Command bar — `add <path>`, `remove [name]`, `refresh`, `q` |
+| `q` / `Ctrl+C` | Quit (stops managed trees; confirms when something is running) |
+
+`:add` handles folders without a `harbor.toml` too: it offers a template (with
+a free-port suggestion baked in) or numbered drafts imported from a `Procfile`
+/ `package.json`. Port-conflict decisions (free port & start, start anyway)
+use the same confirmation semantics as the GUI.
 
 ## Ownership & safety rules
 
