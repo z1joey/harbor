@@ -100,6 +100,55 @@ bound somewhere else (e.g. the command ignored `$PORT`), an orange badge appears
 on the process row. Auto ports do not participate in pre-start conflict checks —
 Harbor always scans for a free port at start time.
 
+### Generating configs with the `harbor-toml` skill
+
+Harbor ships a companion **Cursor agent skill** that drafts `harbor.toml` files
+from your repo layout, plans ports against other registered projects, and
+validates the result against Harbor's parser. Install it once (if you use Cursor skills) at
+`~/.agents/skills/harbor-toml/` (`SKILL.md` plus
+`scripts/validate_harbor_toml.py`).
+
+**In Cursor chat**, attach or invoke the skill and ask in plain language. The
+agent reads `package.json`, `compose.yaml`, framework configs, and
+`~/Library/Application Support/Harbor/projects.json` before writing anything.
+
+Example prompts:
+
+| Goal | Example prompt |
+|---|---|
+| New project | *"Add my `~/Projects/shop` repo to Harbor — discover the dev commands and write a `harbor.toml`."* |
+| Port collisions | *"I already have a Vite app on 5173 in Harbor. Write `harbor.toml` for this Next.js project without overlapping ports."* |
+| Auto ports | *"Use `port = \"auto\"` for the frontend; keep the API on a fixed port the Vite proxy can reach."* |
+| Fix / review | *"My `harbor.toml` fails to parse — fix it to match Harbor's schema."* |
+| Chinese | *"接入 harbor，帮我写个 harbor 配置"* |
+
+The skill follows a fixed workflow: discover processes → collect claimed ports
+from other projects → choose **auto vs fixed** per process (APIs that another
+dev server proxies to should stay **fixed**; standalone servers can use
+`port = "auto"`) → draft TOML → validate → tell you to **Add Project…** in
+Harbor.
+
+Validate a draft yourself (no app required):
+
+```bash
+# From the skill directory after install:
+python3 ~/.agents/skills/harbor-toml/scripts/validate_harbor_toml.py \
+  ~/Projects/shop/harbor.toml \
+  ~/Projects/other-app/harbor.toml
+```
+
+`OK` means parser rules pass and no static port overlap between the listed
+configs. `OVERLAP` flags two projects claiming the same fixed port; `ERROR`
+is a schema violation (e.g. `port_env` without `port = "auto"`, or `${port}`
+in `ready_url` on a fixed port). `WARN` means `port = "auto"` but the command
+does not reference `$PORT`.
+
+**Skill output vs Harbor UI:** the skill only writes `harbor.toml` on disk —
+it does not register the folder. After saving, open Harbor → **Add Project…**
+→ pick the project root. Edits hot-reload; Harbor does not rewrite your app's
+`vite.config`, `.env`, or Docker files. Production deploys are unaffected;
+`port = "auto"` and `$PORT` apply only to processes Harbor starts locally.
+
 ## Ownership & safety rules
 
 - **Manage** (start/stop/restart/logs): only processes Harbor itself spawned,
@@ -133,8 +182,9 @@ Harbor always scans for a free port at start time.
 - `fixtures/sample-harbor.toml` — schema example.
 - `fixtures/selftest-project/` — register this folder to exercise everything:
   `logger` streams a line/second into its log pane, `server` is a python
-  http.server on port 8123 with a `ready_url`, and `cwd-check` proves working
-  directories by writing `pwd` into `sub/harbor-cwd.txt`.
+  http.server on port 8123 with a `ready_url`, `auto-server` uses
+  `port = "auto"` with `$PORT`, and `cwd-check` proves working directories
+  by writing `pwd` into `sub/harbor-cwd.txt`.
 
 ## Testing
 
