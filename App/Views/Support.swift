@@ -46,3 +46,22 @@ enum Pasteboard {
         NSPasteboard.general.setString(text, forType: .string)
     }
 }
+
+/// Single-line truncated label that still exposes the full string via tooltip
+/// and text selection (for long commands and paths).
+struct TruncatingDetailText: View {
+    let text: String
+    var font: Font = .caption
+    var foreground: Color = .secondary
+    var truncationMode: Text.TruncationMode = .tail
+
+    var body: some View {
+        Text(text)
+            .font(font)
+            .foregroundStyle(foreground)
+            .lineLimit(1)
+            .truncationMode(truncationMode)
+            .textSelection(.enabled)
+            .help(text)
+    }
+}

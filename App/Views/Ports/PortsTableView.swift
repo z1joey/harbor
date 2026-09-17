@@ -108,7 +108,9 @@ struct PortsTableView: View {
             }
             .width(min: 60, ideal: 100)
 
-            TableColumn("Command / Path", value: \.commandDisplay)
+            TableColumn("Command / Path") { listener in
+                TruncatingDetailText(text: listener.commandDisplay)
+            }
         }
         .contextMenu(forSelectionType: Listener.ID.self) { ids in
             rowMenu(for: ids)
@@ -133,6 +135,10 @@ struct PortsTableView: View {
         Button("Copy PID") {
             Pasteboard.copy(targets.map { String($0.pid) }.joined(separator: "\n"))
             flash("Copied PID")
+        }
+        Button("Copy command") {
+            Pasteboard.copy(targets.map(\.commandDisplay).joined(separator: "\n"))
+            flash("Copied command")
         }
     }
 
@@ -160,6 +166,13 @@ struct PortsTableView: View {
                 if let listener = selectedListener {
                     Pasteboard.copy(String(listener.pid))
                     flash("Copied PID \(listener.pid)")
+                }
+            }
+            .disabled(selectedListener == nil)
+            Button("Copy command") {
+                if let listener = selectedListener {
+                    Pasteboard.copy(listener.commandDisplay)
+                    flash("Copied command")
                 }
             }
             .disabled(selectedListener == nil)
