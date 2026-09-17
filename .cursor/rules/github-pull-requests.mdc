@@ -1,0 +1,10 @@
+---
+description: GitHub PR and merge conventions for Harbor
+alwaysApply: true
+---
+
+# GitHub pull requests
+
+- Merge pull requests into `main` with **Squash and merge** only.
+- Do not use **Create a merge commit** or **Rebase and merge**.
+- Release branches (`release/*`) squash into `main`; tag releases on `main` after merge (`v1.0.0`, `v1.0.1`, …) with `MARKETING_VERSION` matching the tag (no `v` prefix in `project.yml`).
