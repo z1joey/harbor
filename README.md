@@ -40,8 +40,8 @@ open ~/Library/Developer/Xcode/DerivedData/Harbor-*/Build/Products/Debug/Harbor.
 You get a ferry icon in the menu bar (no Dock icon). The popover offers
 managed projects with status dots, Start/Stop all, a compact listening-ports
 list with filter and kill, and "Open Harbor…" for the full main window
-(sidebar: **Projects** | **Ports**). "Quit Harbor" stops all managed processes
-and exits.
+(sidebar: **Projects** | **Ports Overview** | **Listening Ports**).
+"Quit Harbor" stops all managed processes and exits.
 
 ## Registering a project
 
@@ -67,6 +67,11 @@ port = 8000                      # optional; enables conflict detection + linkin
 ready_url = "http://127.0.0.1:8000/health"  # optional; "ready" health gate
 auto_restart = false             # optional; restart on unexpected exit
 env = { "FOO" = "bar" }          # optional env overrides on top of your environment
+
+[[port_claim]]
+port = 5432                      # port the project relies on (database, broker, …)
+note = "postgres"                # optional, shown in the ports overview
+process = "api"                  # optional, must match a [[process]] name above
 ```
 
 Commands run inside a **login shell** (`/bin/zsh -lc`), so your usual PATH
@@ -85,8 +90,19 @@ until fixed.
   SIGKILL survivors. Harbor enumerates children via the kernel process table,
   so shells spawning children (npm → node, etc.) are fully cleaned up. On
   quit, all managed trees are stopped the same way.
-- Declared `port` already held by a foreign PID → Harbor warns and requires
-  confirmation before starting (individually or via Start all).
+- Declared `[[process]]` `port` already held by a foreign PID → Harbor warns
+  and requires confirmation before starting (individually or via Start all).
+  The confirmation also offers to free the port first: stop the managed
+  holder, or kill the foreign process tree, then start.
+- `[[port_claim]]` ports are planning metadata: they never block starts (the
+  holder is usually infrastructure like brew-services postgres or a
+  Docker-published port, which can never look "managed"). They drive static
+  overlap warnings and the Ports Overview instead.
+- Held by *another project's managed process* → same warning (this collision
+  is invisible to plain lsof-vs-config checks). Two projects claiming the
+  same port with nothing running is flagged as a static overlap — see the
+  **Ports Overview** sidebar item, and warnings when adding/importing a
+  project (which also suggest currently free ports).
 - Port snapshots come from `lsof -nP -iTCP -sTCP:LISTEN`, polled every ~2s on
   a background queue. Without elevated privileges lsof only shows your own
   listeners — that's an OS constraint, not a bug.
@@ -101,12 +117,14 @@ until fixed.
 
 ## Testing
 
-The `HarborTests` target (41 XCTests) compiles the real service sources
+The `HarborTests` target (63 XCTests) compiles the real service sources
 (`App/Models`, `App/Services`) unhosted, so tests run fast without launching
-the app. They cover the TOML parser, project registry store, lsof output
-parsing and dedupe, port-conflict filtering, the SIGTERM→SIGKILL tree kill,
-log ring buffers, the process supervisor lifecycle (cwd/env, stop, restart,
-auto-restart, failed state), and the Procfile/package.json importers.
+the app. They cover the TOML parser (incl. `[[port_claim]]`), project
+registry store, lsof output parsing and dedupe, the port planner (runtime
+conflicts — foreign and managed holders —, static overlaps, free-port
+suggestions), the SIGTERM→SIGKILL tree kill, log ring buffers, the process
+supervisor lifecycle (cwd/env, stop, restart, auto-restart, failed state,
+PID→process lookup), and the Procfile/package.json importers.
 
 ```bash
 xcodebuild test -project Harbor.xcodeproj -scheme Harbor \

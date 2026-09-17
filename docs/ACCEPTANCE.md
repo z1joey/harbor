@@ -62,6 +62,17 @@ steps at the bottom.
 - [ ] AC4.5 Launch at Login toggle survives app restart and matches System Settings behavior. (Manual step M9 — requires registering a real login item; `SMAppService` code fails soft with a readable error.)
 - [ ] AC4.6 Crash / conflict triggers a user-visible notification permission-aware (if denied, fail soft). (Manual step M10 — notification permission prompts once; delivery is silent no-op when denied.)
 
+## Task 5 — Port planning (static overlaps + freeing)
+
+- [x] AC5.1 `[[port_claim]]` parses with optional `note`/`process`; out-of-range, duplicate, and unknown-process claims are rejected. *(service tests: ConfigParserTests port_claim cases)*
+- [x] AC5.2 A port held by another project's managed process is reported as a runtime conflict (previously invisible). *(service tests: PortPlannerTests managed-holder cases)*
+- [x] AC5.3 Ports claimed by ≥2 projects are reported as static overlaps, sorted by port. *(service tests: PortPlannerTests overlap cases)*
+- [x] AC5.4 Free-port suggestions skip all claimed and currently listening ports. *(service tests: PortPlannerTests suggestion cases)*
+- [x] AC5.5 A PID maps to its owning managed project/process while running and clears after stop. *(service test: ProcessSupervisorTests key-for-PID)*
+- [ ] AC5.6 Ports Overview shows claims, live status, holders, and overlap banners; sidebar badge counts overlaps. (Manual step M11.)
+- [ ] AC5.7 Conflict dialogs offer "free the port & start" (stop managed holder / kill foreign tree) for single and start-all flows. (Dialog wiring is manual step M11; freeing logic reuses the verified stop/kill paths.)
+- [ ] AC5.8 Add-project shows the overlap review screen; import editors show overlap hints + free-port suggestions; template comment carries the suggested port. (Manual step M11.)
+
 ## Cross-cutting
 
 - [x] ACX.1 No force-unwrap crashes in happy path or empty states. (Repo-wide grep: no `!` force unwraps / `try!` / `as!` in `App/`; empty states handled in every list view.)
@@ -107,3 +118,10 @@ Launch a freshly built app:
 - **M10 (AC4.6):** Add `auto_restart = true` to a process, start it, `kill -9`
   the child twice → crash notification appears (first use asks permission);
   denying permission silences future ones without errors.
+- **M11 (AC5.6–5.8):** Register two projects claiming the same port (e.g. copy
+  `fixtures/sample-harbor.toml` into a second folder). Ports Overview lists
+  the port with an orange overlap banner and the sidebar badge shows "1".
+  With project A running, start the colliding process of project B → the
+  dialog names A's project · process and offers "Stop … & start" → confirming
+  stops A's process and starts B's. Re-add a project whose config claims an
+  overlap → the Add flow shows the review screen with free-port suggestions.
