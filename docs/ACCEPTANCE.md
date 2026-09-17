@@ -141,3 +141,44 @@ Launch a freshly built app:
   assigned URL. Ports Overview lists the port as "(auto)". Stop and restart
   → a (possibly different) port is assigned. Optionally start a process whose
   command ignores `$PORT` → after ~5s an orange mismatch badge appears.
+
+## TUI — v1.0.0 (`harbor-tui`)
+
+Shared-engine behavior (parsing, planning, supervision) is covered by the
+`HarborCoreTests` suite (`cd Core && swift test`, green). The items below are
+the TUI-specific manual checks; run `harbor-tui` in Terminal.app/iTerm with
+`fixtures/selftest-project` registered.
+
+- [ ] TUI-T1 Launch: alternate screen opens, top bar shows project/running
+      counts, Projects panel lists every registered project with process rows,
+      status dots and port labels (`:8000`, `:auto`, `:NNNN auto`). (PTY smoke
+      verified render + clean exit during development.)
+- [ ] TUI-T2 `j/k`/arrows move selection; `1/2/3`/`Tab` switch panels; bottom
+      hint line reflects the active panel.
+- [ ] TUI-T3 Start `logger` (`s`) → state turns running, Logs panel (`⏎`)
+      streams lines with follow on; `f` pauses on scroll-up and resumes at
+      bottom; `c` clears.
+- [ ] TUI-T4 Stop (`x`) → tree exits, log gets the stop line; `r` restarts.
+- [ ] TUI-T5 Start a process whose declared port is held (see M11 fixture
+      setup) → inline confirmation offers free-port & start / start anyway /
+      cancel; "free port & start" stops the managed holder (or confirms the
+      foreign kill) then starts.
+- [ ] TUI-T6 `S` on a project with two blocked processes → start-all
+      confirmation naming both ports; "free ports & start all" releases and
+      starts all.
+- [ ] TUI-T7 Ports panel: listening table shows managed holders with
+      `● harbor`; `m` toggles mine-only; `/` filters live; `x` on a foreign
+      listener asks the kill confirmation and terminates the tree.
+- [ ] TUI-T8 `v` switches to Ports Overview: claims ∪ listeners, free /
+      managed / external statuses, holder column; static-overlap rows carry ⚠.
+- [ ] TUI-T9 `:add <path>` on a folder with config shows the overlap review
+      when it collides (add anyway / cancel); on a folder without config it
+      offers template + numbered Procfile/package.json drafts (free-port hint).
+- [ ] TUI-T10 `:remove` (with confirmation) unregisters; the running GUI
+      reflects the change without restart and vice versa (shared registry,
+      flock + store watch).
+- [ ] TUI-T11 `q` with running processes → quit confirmation; confirming
+      stops all TUI-managed trees; terminal is fully restored (cursor, main
+      screen buffer) after every exit path, including external SIGTERM.
+- [ ] TUI-T12 Terminal resize re-renders correctly; CJK project names are not
+      split mid-glyph.
