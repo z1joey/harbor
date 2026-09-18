@@ -85,7 +85,7 @@ steps at the bottom.
 
 ## Task 7 — `~/.harbor` home + skill-side registration (v1.2.0)
 
-The app no longer registers projects: the harbor-toml skill writes
+The app no longer registers projects: the harbor-pilot skill writes
 `harbor.toml` and appends roots to `~/.harbor/projects.json`; both frontends
 read + watch. Add Project / template creation / Procfile-package.json
 import / Remove Project / TUI `:add` & `:remove` were removed by design.
@@ -140,7 +140,7 @@ Launch a freshly built app:
   → Copy port / Copy PID → paste somewhere to verify. Type into the filter
   field (e.g. "8765" or "py") → list narrows; toggle "Mine only".
 - **M5 (AC3.5/3.7):** Register `fixtures/selftest-project` (v1.2.0+: `python3
-  ~/.agents/skills/harbor-toml/scripts/register_project.py
+  ~/.agents/skills/harbor-pilot/scripts/register_project.py
   ~/Projects/harbor/fixtures/selftest-project`). Start All → four status dots turn green and the
   menubar icon shows "4"; Stop All → dots gray, count gone.
 - **M6 (AC3.6):** Start `python3 -m http.server 8123` externally, then press
@@ -152,9 +152,9 @@ Launch a freshly built app:
   (or `open_url`) to a project → menubar safari icon and detail "Open in Browser"
   open the same URL.
 - **M8 (AC4.4):** *Removed in v1.2.0 — Procfile/package.json import moved to
-  the harbor-toml skill (it drafts the TOML itself).*
+  the harbor-pilot skill (it drafts the TOML itself).*
 - **M13 (AC7.6/7.7):** With Harbor running, run
-  `python3 ~/.agents/skills/harbor-toml/scripts/register_project.py
+  `python3 ~/.agents/skills/harbor-pilot/scripts/register_project.py
   ~/Projects/harbor/fixtures/selftest-project` → the project appears within
   ~1s. Inspect `~/.harbor/projects.json`; remove the entry → the project
   vanishes live. Empty states (sidebar, popover) mention the skill; TUI `:`
@@ -211,7 +211,7 @@ the TUI-specific manual checks; run `harbor-tui` in Terminal.app/iTerm with
       free, leased pool-port rows, other-claims section, free / managed /
       external statuses, holder column; static-overlap rows carry ⚠.
 - [ ] TUI-T9 *Removed in v1.2.0 — registration lives in `~/.harbor`, written
-      by the harbor-toml skill; the TUI is a read + supervise frontend.*
+      by the harbor-pilot skill; the TUI is a read + supervise frontend.*
 - [ ] TUI-T10 *Removed in v1.2.0 — unregister by editing
       `~/.harbor/projects.json`; both frontends hot-reload it.*
 - [ ] TUI-T11 `q` with running processes → quit confirmation; confirming

@@ -215,7 +215,7 @@ struct PortsOverviewView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
             if conventionRows.isEmpty {
-                Text("No process has a port in the Harbor pool yet. Declare [[process]].port from the pool (the harbor-toml skill does this when you register a project).")
+                Text("No process has a port in the Harbor pool yet. Declare [[process]].port from the pool (the harbor-pilot skill does this when you register a project).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -392,7 +392,7 @@ struct PortsOverviewView: View {
                 .foregroundStyle(.secondary)
             Text("No pool leases or other claims yet.")
                 .foregroundStyle(.secondary)
-            Text("Declare [[process]].port from the Harbor pool (the harbor-toml skill does this when you register a project). Out-of-pool ports and [[port_claim]]s still show here as other claims.")
+            Text("Declare [[process]].port from the Harbor pool (the harbor-pilot skill does this when you register a project). Out-of-pool ports and [[port_claim]]s still show here as other claims.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

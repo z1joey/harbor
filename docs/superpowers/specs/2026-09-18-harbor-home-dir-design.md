@@ -4,7 +4,7 @@ Date: 2026-09-18 · Version: 1.2.0 · Status: implemented
 
 ## Problem
 
-Registration required the app: the harbor-toml skill could only write
+Registration required the app: the harbor-pilot skill could only write
 `harbor.toml` and then tell the user to click **Add Project…**. The project
 list and pool lived in `~/Library/Application Support/Harbor/`, a location
 agents don't naturally look at, and the app owned a 4-step add wizard
@@ -19,7 +19,7 @@ review) that duplicated what the skill already does better.
    the location changes. Pool "leases" stay **derived** from each project's
    `harbor.toml` (`[[process]].port` inside the pool); no new persisted
    lease state exists.
-2. **The app never registers projects.** The harbor-toml skill writes
+2. **The app never registers projects.** The harbor-pilot skill writes
    `harbor.toml`, then appends the root to `~/.harbor/projects.json`
    (atomic tmp+rename). Both frontends read and watch that file; a running
    frontend shows a new project within ~1s, a cold one at next launch.
@@ -66,7 +66,7 @@ are absorbed by the existing load-diff guards. Verified by
   banner keeps its error text, drops the template/import buttons.
 - TUI: `:add`/`:remove` removed; `:` bar keeps `refresh`/`q`.
 
-## Skill contract (github.com/z1joey/harbor-toml)
+## Skill contract (github.com/z1joey/harbor-pilot)
 
 - Reads `~/.harbor/port-pool.json` + `~/.harbor/projects.json`; falls back
   to the legacy App Support paths while only those exist; performs the same

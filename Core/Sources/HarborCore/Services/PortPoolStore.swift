@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 
 /// Loads/saves Harbor's port pool (`~/.harbor/port-pool.json`). Shared by the
-/// GUI and TUI; the harbor-toml skill reads the same file.
+/// GUI and TUI; the harbor-pilot skill reads the same file.
 ///
 /// Missing or unreadable files resolve to `PortPool.default` (8100–8199)
 /// without writing, so a fresh install and the skill agree without a seed file.

@@ -17,7 +17,7 @@ public struct PortRange: Hashable, Codable, Equatable, Sendable {
     public var label: String { "\(from)–\(to)" }
 }
 
-/// Configurable set of ports Harbor (and the harbor-toml skill) may hand out
+/// Configurable set of ports Harbor (and the harbor-pilot skill) may hand out
 /// as sticky `[[process]].port` leases. Persisted as `port-pool.json`.
 public struct PortPool: Hashable, Codable, Equatable, Sendable {
     public var ranges: [PortRange]

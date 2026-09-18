@@ -61,7 +61,7 @@ struct ProjectDetailView: View {
                         NSWorkspace.shared.open(configURL)
                     }
                 } else {
-                    Text("No harbor.toml found. Ask the harbor-toml skill to draft one — refocus this window to reload.")
+                    Text("No harbor.toml found. Ask the harbor-pilot skill to draft one — refocus this window to reload.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

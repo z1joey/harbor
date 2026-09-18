@@ -7,7 +7,7 @@ warnings, health probes, and auto-restart. Ships in two forms that share one
 core: a SwiftUI menubar app and a terminal UI (`harbor-tui`).
 
 State lives in a hidden `~/.harbor` folder — the port pool plus the project
-registry (the Port Allocation Convention). The companion **harbor-toml**
+registry (the Port Allocation Convention). The companion **harbor-pilot**
 skill owns registration: it writes `harbor.toml` and appends project roots to
 `~/.harbor/projects.json`; both frontends only read (and watch) that file, so
 registration works whether or not Harbor is running.
@@ -54,7 +54,7 @@ list with kill, and "Open Harbor…" for the full main window (sidebar:
 
 Harbor has no "Add Project" flow. Each project is a folder containing
 `harbor.toml` (or `.harbor.toml`), drafted and **registered by the
-harbor-toml skill**: it discovers the dev commands, plans ports against the
+harbor-pilot skill**: it discovers the dev commands, plans ports against the
 pool and your other projects, writes the TOML, then appends the project root
 to `~/.harbor/projects.json`. Both frontends watch that file — a registered
 project appears within ~1s while Harbor runs, or at next launch.
@@ -111,7 +111,7 @@ project is registered. It lives at:
 ```
 
 Missing file → default **8100–8199**. Edit the ranges from the main window's
-**Port Convention** sidebar (**Edit pool…**). The companion harbor-toml skill
+**Port Convention** sidebar (**Edit pool…**). The companion harbor-pilot skill
 reads the same file and writes the next free pool port into `harbor.toml`.
 
 ```toml
@@ -134,16 +134,16 @@ Project, Process, Status), the pool summary (`8100–8199 · 3 / 100 allocated`)
 and the next free port. Unused pool ports are omitted. Overlap banners and
 kill/copy actions still apply.
 
-### Generating configs with the `harbor-toml` skill
+### Generating configs with the `harbor-pilot` skill
 
 Harbor has a companion **Cursor agent skill**
-[**harbor-toml**](https://github.com/z1joey/harbor-toml) that drafts
+[**harbor-pilot**](https://github.com/z1joey/harbor-pilot) that drafts
 `harbor.toml` files from your repo layout, plans ports against other registered
 projects, and validates the result against Harbor's parser. Install once:
 
 ```bash
 mkdir -p ~/.agents/skills
-git clone https://github.com/z1joey/harbor-toml.git ~/.agents/skills/harbor-toml
+git clone https://github.com/z1joey/harbor-pilot.git ~/.agents/skills/harbor-pilot
 ```
 
 **In Cursor chat**, attach or invoke the skill and ask in plain language. The
@@ -169,12 +169,12 @@ elsewhere → draft TOML → validate → **register** the project
 Validate a draft yourself (no app required):
 
 ```bash
-python3 ~/.agents/skills/harbor-toml/scripts/validate_harbor_toml.py \
+python3 ~/.agents/skills/harbor-pilot/scripts/validate_harbor_toml.py \
   ~/Projects/shop/harbor.toml \
   ~/Projects/other-app/harbor.toml
 ```
 
-See the [harbor-toml repo](https://github.com/z1joey/harbor-toml) for the full
+See the [harbor-pilot repo](https://github.com/z1joey/harbor-pilot) for the full
 skill schema (`open_process`, pool `port = N`, Docker `port_claim`s, etc.).
 
 `OK` means parser rules pass and no static port overlap between the listed
@@ -250,7 +250,7 @@ supervising only the processes it spawned itself.
 - Held by *another project's managed process* → same warning (this collision
   is invisible to plain lsof-vs-config checks). Two projects claiming the
   same port with nothing running is flagged as a static overlap — see the
-  **Port Convention** sidebar item and start-time warnings (the harbor-toml
+  **Port Convention** sidebar item and start-time warnings (the harbor-pilot
   skill plans ports to avoid this when registering).
 - Port snapshots come from `lsof -nP -iTCP -sTCP:LISTEN`, polled every ~2s on
   a background queue. Without elevated privileges lsof only shows your own
@@ -260,7 +260,7 @@ supervising only the processes it spawned itself.
 
 - `fixtures/sample-harbor.toml` — schema example.
 - `fixtures/selftest-project/` — register this folder to exercise everything
-  (`python3 ~/.agents/skills/harbor-toml/scripts/register_project.py
+  (`python3 ~/.agents/skills/harbor-pilot/scripts/register_project.py
   <abs-path-to>/fixtures/selftest-project`):
   `logger` streams a line/second into its log pane, `server` is a python
   http.server on port 8123 with a `ready_url`, `auto-server` uses sticky pool

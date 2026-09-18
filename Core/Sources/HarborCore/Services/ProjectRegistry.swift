@@ -5,7 +5,7 @@ import Darwin
 /// keeps parsed `Project` values up to date by watching each config file for
 /// changes.
 ///
-/// The registry file is owned by the harbor-toml skill (which appends project
+/// The registry file is owned by the harbor-pilot skill (which appends project
 /// roots, possibly while no Harbor frontend is running); it may also be edited
 /// by hand. Harbor frontends only read it: both the GUI and the TUI watch the
 /// `~/.harbor` directory, so either picks up registrations live — including

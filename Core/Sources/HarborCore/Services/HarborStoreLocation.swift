@@ -2,7 +2,7 @@ import Foundation
 
 /// Canonical location of Harbor's on-disk state: the hidden `~/.harbor`
 /// folder. It holds the Port Allocation Convention (`projects.json` +
-/// `port-pool.json`) and is shared with the harbor-toml skill, which
+/// `port-pool.json`) and is shared with the harbor-pilot skill, which
 /// registers projects by appending to `projects.json` — possibly while no
 /// Harbor frontend is running.
 public enum HarborStoreLocation {

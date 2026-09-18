@@ -13,7 +13,7 @@ struct ProjectsSidebarView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("No projects yet")
                             .font(.caption)
-                        Text("Register one with the harbor-toml skill — it writes ~/.harbor and Harbor picks it up automatically.")
+                        Text("Register one with the harbor-pilot skill — it writes ~/.harbor and Harbor picks it up automatically.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

@@ -532,7 +532,7 @@ final class TuiApp {
         case "q", "quit":
             requestQuit()
         default:
-            showFlash("unknown command: \(parts[0]) (try refresh/q; registration lives in ~/.harbor via the harbor-toml skill)",
+            showFlash("unknown command: \(parts[0]) (try refresh/q; registration lives in ~/.harbor via the harbor-pilot skill)",
                       style: Style(fg: .yellow))
         }
         draw()

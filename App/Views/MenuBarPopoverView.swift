@@ -149,7 +149,7 @@ struct MenuBarPopoverView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("PROJECTS").font(.caption2).foregroundStyle(.secondary)
             if appState.registry.projects.isEmpty {
-                Text("No projects yet. Register one with the harbor-toml skill.")
+                Text("No projects yet. Register one with the harbor-pilot skill.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
