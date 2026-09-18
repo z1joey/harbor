@@ -103,7 +103,7 @@ public enum PortPlanner {
     /// Docker-published port whose listener is com.docker.backend, …). Those
     /// holders never appear as managed PIDs even when everything is healthy,
     /// so treating them as conflicts would light the menubar warning
-    /// permanently. Claims still drive static overlaps and the Ports Overview.
+    /// permanently. Claims still drive static overlaps and the Port Allocation Convention.
     public static func conflicts(forProject project: Project,
                           listeners: [Listener],
                           managedHolder: (pid_t) -> ManagedHolder?) -> [RuntimeConflict] {
@@ -169,17 +169,27 @@ public enum PortPlanner {
         return suggestions
     }
 
-    // MARK: - Auto port allocation
+    // MARK: - Pool suggestions
 
-    /// Default scan range for `port = "auto"` processes.
-    public static let autoPortRange = 8100...9999
-
-    /// First port in `autoPortRange` not in `taken` and passing `isBindable`.
-    public static func allocatePort(taken: Set<Int>, isBindable: (Int) -> Bool = isBindable) -> Int? {
-        for port in autoPortRange where !taken.contains(port) && isBindable(port) {
+    /// First port in `pool` not in `taken` and passing `isBindable`.
+    /// Used for skill-equivalent suggestions — not start-time assignment.
+    public static func allocatePort(taken: Set<Int>,
+                                    pool: PortPool = .default,
+                                    isBindable: (Int) -> Bool = isBindable) -> Int? {
+        for port in pool.ports where !taken.contains(port) && isBindable(port) {
             return port
         }
         return nil
+    }
+
+    /// `count` free ports from `pool`, skipping `taken` (no bind probe).
+    public static func suggestFreePorts(count: Int, pool: PortPool, taken: Set<Int>) -> [Int] {
+        var suggestions: [Int] = []
+        for port in pool.ports where !taken.contains(port) {
+            suggestions.append(port)
+            if suggestions.count == count { break }
+        }
+        return suggestions
     }
 
     /// Returns true when `port` can be bound on 0.0.0.0 (catches stale lsof gaps).
@@ -208,6 +218,25 @@ public enum PortPlanner {
             || command.contains("${" + envName + "}")
     }
 
+    /// Soft lint: command mentions `$PORT` / `${PORT}` or the decimal port number.
+    public static func commandReferencesDeclaredPort(_ command: String, port: Int, envName: String) -> Bool {
+        if commandReferencesPortEnv(command, envName: envName) { return true }
+        let digits = String(port)
+        var search = command.startIndex
+        while let range = command.range(of: digits, range: search..<command.endIndex) {
+            let beforeIsDigit: Bool
+            if range.lowerBound > command.startIndex {
+                beforeIsDigit = command[command.index(before: range.lowerBound)].isNumber
+            } else {
+                beforeIsDigit = false
+            }
+            let afterIsDigit = range.upperBound < command.endIndex && command[range.upperBound].isNumber
+            if !beforeIsDigit && !afterIsDigit { return true }
+            search = range.upperBound
+        }
+        return false
+    }
+
     /// True when the process listens on ports other than the one Harbor expects.
     public static func portMismatch(expected: Int, observed: Set<Int>) -> Bool {
         !observed.isEmpty && !observed.contains(expected)
@@ -230,7 +259,7 @@ public enum PortPlanner {
                                grace: TimeInterval = 5) -> PortVerification? {
         guard status.state == .running else { return nil }
         guard let startedAt = status.startedAt, now.timeIntervalSince(startedAt) > grace else { return nil }
-        let expected = status.assignedPort ?? definitionPort
+        let expected = definitionPort
         guard let expected, let pid = status.pid else { return nil }
         let observed = observedListeningPorts(rootPID: pid, listeners: listeners, processTable: processTable)
         guard portMismatch(expected: expected, observed: observed) else { return nil }

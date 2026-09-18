@@ -46,7 +46,7 @@ struct ProjectsSidebarView: View {
                     label: {
                         HStack {
                             Image(systemName: "square.grid.2x2")
-                            Text("Ports Overview")
+                            Text("Port Convention")
                             Spacer()
                             if !appState.staticOverlaps.isEmpty {
                                 Text(String(appState.staticOverlaps.count))

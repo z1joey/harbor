@@ -2,8 +2,8 @@ import Foundation
 import HarborCore
 import HarborTUIKit
 
-/// Ports panel with two subviews: live listening sockets and the planning
-/// overview (claimed vs. listening, static overlaps).
+/// Ports panel with two subviews: live listening sockets and the Port
+/// Allocation Convention (pool leases + other claims).
 struct PortsPanel {
     enum Subview {
         case listening
@@ -25,11 +25,12 @@ struct PortsPanel {
         TableColumn(title: "COMMAND", width: 40),
     ]
 
-    private static let overviewColumns = [
+    private static let conventionColumns = [
         TableColumn(title: "PORT", width: 7, alignment: .right),
-        TableColumn(title: "CLAIMED BY", width: 36),
+        TableColumn(title: "PROJECT", width: 18),
+        TableColumn(title: "PROCESS", width: 16),
         TableColumn(title: "STATUS", width: 10),
-        TableColumn(title: "HOLDER", width: 36),
+        TableColumn(title: "HOLDER", width: 28),
     ]
 
     static func matches(_ listener: Listener, filter: String, mineOnly: Bool) -> Bool {
@@ -75,40 +76,92 @@ struct PortsPanel {
         return table
     }
 
-    static func overviewTable(rows: [HarborCoordinator.OverviewRow],
-                              overlapPorts: Set<Int>,
-                              selected: Int?) -> TableView {
-        let tableRows = rows.map { row -> TableRow in
+    /// Flattened convention + other-claims table. Header rows have a nil payload
+    /// so the TUI can skip them when killing.
+    struct AllocationItem {
+        let listener: Listener?
+        let isHeader: Bool
+    }
+
+    static func conventionTable(conventionRows: [HarborCoordinator.ConventionRow],
+                                otherRows: [HarborCoordinator.OverviewRow],
+                                overlapPorts: Set<Int>,
+                                selected: Int?) -> (table: TableView, items: [AllocationItem]) {
+        var tableRows: [TableRow] = []
+        var items: [AllocationItem] = []
+
+        func statusCells(listener: Listener?, managed: PortPlanner.ManagedHolder?) -> (status: String, color: Color?, holder: String) {
             let status: String
             let statusColor: Color?
-            if let holder = row.managedHolder {
+            if managed != nil {
                 status = "managed"
                 statusColor = .green
-            } else if row.listener != nil {
+            } else if listener != nil {
                 status = "external"
                 statusColor = .yellow
             } else {
                 status = "free"
                 statusColor = .brightBlack
             }
-            var style = Style(fg: statusColor)
-            if overlapPorts.contains(row.port) {
-                style = style + Style(bold: true)
-            }
-            let claims = row.claimDetails.isEmpty ? "—" : row.claimDetails.joined(separator: "; ")
             let holderText: String
-            if let managed = row.managedHolder {
+            if let managed {
                 holderText = "\(managed.projectName) · \(managed.processName)"
-            } else if let listener = row.listener {
+            } else if let listener {
                 holderText = listener.processName
             } else {
                 holderText = "—"
             }
-            let port = overlapPorts.contains(row.port) ? "\(row.port) ⚠" : String(row.port)
-            return TableRow([port, claims, status, holderText], style: style)
+            return (status, statusColor, holderText)
         }
-        var table = TableView(columns: overviewColumns, rows: tableRows)
+
+        tableRows.append(TableRow(["──", "pool leases", "", "", ""], style: Style(fg: .brightBlack, bold: true)))
+        items.append(AllocationItem(listener: nil, isHeader: true))
+
+        if conventionRows.isEmpty {
+            tableRows.append(TableRow(["", "none — declare [[process]].port from the pool", "", "", ""],
+                                      style: Style(fg: .brightBlack)))
+            items.append(AllocationItem(listener: nil, isHeader: true))
+        } else {
+            for row in conventionRows {
+                let cells = statusCells(listener: row.listener, managed: row.managedHolder)
+                var style = Style(fg: cells.color)
+                if overlapPorts.contains(row.port) {
+                    style = style + Style(bold: true)
+                }
+                let port = overlapPorts.contains(row.port) ? "\(row.port) ⚠" : String(row.port)
+                tableRows.append(TableRow([port, row.projectName, row.processName, cells.status, cells.holder], style: style))
+                items.append(AllocationItem(listener: row.listener, isHeader: false))
+            }
+        }
+
+        tableRows.append(TableRow(["──", "other claims", "", "", ""], style: Style(fg: .brightBlack, bold: true)))
+        items.append(AllocationItem(listener: nil, isHeader: true))
+
+        if otherRows.isEmpty {
+            tableRows.append(TableRow(["", "none", "", "", ""], style: Style(fg: .brightBlack)))
+            items.append(AllocationItem(listener: nil, isHeader: true))
+        } else {
+            for row in otherRows {
+                let cells = statusCells(listener: row.listener, managed: row.managedHolder)
+                var style = Style(fg: cells.color)
+                if overlapPorts.contains(row.port) {
+                    style = style + Style(bold: true)
+                }
+                let port = overlapPorts.contains(row.port) ? "\(row.port) ⚠" : String(row.port)
+                let project = row.projectNames.isEmpty ? "—" : row.projectNames.joined(separator: ", ")
+                let process = row.claimDetails.first.map { detail in
+                    if let dash = detail.range(of: " — ") {
+                        return String(detail[dash.upperBound...])
+                    }
+                    return detail
+                } ?? "—"
+                tableRows.append(TableRow([port, project, process, cells.status, cells.holder], style: style))
+                items.append(AllocationItem(listener: row.listener, isHeader: false))
+            }
+        }
+
+        var table = TableView(columns: conventionColumns, rows: tableRows)
         table.select(selected)
-        return table
+        return (table, items)
     }
 }

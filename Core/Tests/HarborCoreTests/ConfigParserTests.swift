@@ -221,7 +221,7 @@ final class ConfigParserTests: XCTestCase {
     func testTemplateParsesWithNoClaimsAndSuggestedPortIsCommentedOut() throws {
         let template = HarborConfigParser.templateText(projectName: "fresh", suggestedPort: 8123)
         XCTAssertTrue(template.contains("port = 8123"))
-        XCTAssertTrue(template.contains("port = \"auto\""))
+        XCTAssertFalse(template.contains("port = \"auto\""))
         XCTAssertTrue(template.contains("[[port_claim]]"))
         let parsed = try HarborConfigParser.parse(text: template)
         XCTAssertEqual(parsed.processes.count, 1)
@@ -229,34 +229,46 @@ final class ConfigParserTests: XCTestCase {
         XCTAssertNil(parsed.processes[0].port)
     }
 
-    // MARK: - port = "auto"
+    // MARK: - declared port, port_env, ${port}
 
-    func testParsesAutoPort() throws {
+    func testParsesDeclaredPortWithPortPlaceholder() throws {
         let parsed = try HarborConfigParser.parse(text: """
         [[process]]
         name = "api"
         command = "uvicorn app:app --port $PORT"
-        port = "auto"
+        port = 8100
         ready_url = "http://127.0.0.1:${port}/health"
         """)
         let api = try XCTUnwrap(parsed.processes.first)
-        XCTAssertTrue(api.autoPort)
-        XCTAssertNil(api.port)
+        XCTAssertEqual(api.port, 8100)
         XCTAssertEqual(api.portEnv, "PORT")
         XCTAssertEqual(api.readyURLTemplate, "http://127.0.0.1:${port}/health")
-        XCTAssertEqual(api.readyURL(port: 8102)?.absoluteString, "http://127.0.0.1:8102/health")
+        XCTAssertEqual(api.readyURL(port: 8100)?.absoluteString, "http://127.0.0.1:8100/health")
     }
 
-    func testParsesCustomPortEnv() throws {
+    func testParsesCustomPortEnvOnDeclaredPort() throws {
         let parsed = try HarborConfigParser.parse(text: """
         [[process]]
         name = "web"
         command = "npm run dev -- --port $APP_PORT"
-        port = "auto"
+        port = 8101
         port_env = "APP_PORT"
         """)
         let web = try XCTUnwrap(parsed.processes.first)
+        XCTAssertEqual(web.port, 8101)
         XCTAssertEqual(web.portEnv, "APP_PORT")
+    }
+
+    func testAutoPortStringIsRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "run"
+        port = "auto"
+        """)) { error in
+            let message = (error as? HarborConfigError)?.localizedDescription ?? "\(error)"
+            XCTAssertTrue(message.contains("auto"), "unexpected message: \(message)")
+        }
     }
 
     func testInvalidPortStringIsRejected() {
@@ -268,24 +280,28 @@ final class ConfigParserTests: XCTestCase {
         """))
     }
 
-    func testPortEnvWithoutAutoIsRejected() {
+    func testPortEnvWithoutPortIsRejected() {
         XCTAssertThrowsError(try HarborConfigParser.parse(text: """
         [[process]]
         name = "api"
         command = "run"
-        port = 8000
         port_env = "PORT"
-        """))
+        """)) { error in
+            let message = (error as? HarborConfigError)?.localizedDescription ?? "\(error)"
+            XCTAssertTrue(message.contains("port_env"), "unexpected message: \(message)")
+        }
     }
 
-    func testReadyURLPortPlaceholderWithoutAutoIsRejected() {
+    func testReadyURLPortPlaceholderWithoutPortIsRejected() {
         XCTAssertThrowsError(try HarborConfigParser.parse(text: """
         [[process]]
         name = "api"
         command = "run"
-        port = 8000
         ready_url = "http://127.0.0.1:${port}/"
-        """))
+        """)) { error in
+            let message = (error as? HarborConfigError)?.localizedDescription ?? "\(error)"
+            XCTAssertTrue(message.contains("${port}"), "unexpected message: \(message)")
+        }
     }
 
     func testInvalidPortEnvNameIsRejected() {
@@ -293,7 +309,7 @@ final class ConfigParserTests: XCTestCase {
         [[process]]
         name = "api"
         command = "run"
-        port = "auto"
+        port = 8100
         port_env = "bad-name"
         """))
     }

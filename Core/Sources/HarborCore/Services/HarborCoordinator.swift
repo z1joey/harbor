@@ -2,19 +2,24 @@ import Foundation
 import Darwin
 
 /// Orchestration logic shared by the GUI and the TUI: PID→managed-holder
-/// resolution (ancestor walk), auto-port planning, free-port suggestions and
-/// the Ports Overview row model. Holds references to the three core services;
-/// the frontends own their construction and wiring.
+/// resolution (ancestor walk), pool-port suggestions and the Port Allocation
+/// Convention row model. Holds references to the core services; the frontends
+/// own their construction and wiring.
 @MainActor
 public final class HarborCoordinator {
     public let registry: ProjectRegistry
     public let observer: PortObserver
     public let supervisor: ProcessSupervisor
+    public let portPoolStore: PortPoolStore
 
-    public init(registry: ProjectRegistry, observer: PortObserver, supervisor: ProcessSupervisor) {
+    public init(registry: ProjectRegistry,
+                observer: PortObserver,
+                supervisor: ProcessSupervisor,
+                portPoolStore: PortPoolStore) {
         self.registry = registry
         self.observer = observer
         self.supervisor = supervisor
+        self.portPoolStore = portPoolStore
     }
 
     // MARK: - PID → managed holder
@@ -72,37 +77,51 @@ public final class HarborCoordinator {
 
     // MARK: - Ports
 
-    /// Ports unavailable for auto assignment: listeners, static claims, in-flight assignments.
-    public func autoPortTakenSet() -> Set<Int> {
+    /// Ports unavailable for pool suggestions: listeners ∪ static claims.
+    public func takenPorts() -> Set<Int> {
         var taken = Set(observer.listeners.map(\.port))
         for project in registry.projects {
             taken.formUnion(project.claimedPorts)
         }
-        taken.formUnion(supervisor.assignedPorts())
         return taken
     }
 
-    public func allocateAutoPort() -> Int? {
-        PortPlanner.allocatePort(taken: autoPortTakenSet(), isBindable: PortPlanner.isBindable)
+    /// First free port in the configured pool (bind-probed). Suggestions only.
+    public func nextFreePoolPort() -> Int? {
+        PortPlanner.allocatePort(taken: takenPorts(), pool: portPoolStore.pool, isBindable: PortPlanner.isBindable)
     }
 
-    /// Port numbers free across every registered project and current listener.
-    public func suggestedFreePorts(count: Int = 5, from base: Int = 8000) -> [Int] {
-        PortPlanner.suggestFreePorts(count: count, from: base, taken: autoPortTakenSet())
+    /// Port numbers free in the configured pool (no bind probe).
+    public func suggestedFreePorts(count: Int = 5) -> [Int] {
+        PortPlanner.suggestFreePorts(count: count, pool: portPoolStore.pool, taken: takenPorts())
     }
 
-    /// Assigned auto ports per process key (for the overview's `:NNNN auto` rows).
-    public func assignedPortsByKey() -> [ProcessKey: Int] {
-        var result: [ProcessKey: Int] = [:]
-        for (key, status) in supervisor.statuses {
-            if let port = status.assignedPort {
-                result[key] = port
+    public var pool: PortPool { portPoolStore.pool }
+
+    public func poolSummary(projects: [Project]? = nil) -> (label: String, allocated: Int, capacity: Int) {
+        let pool = portPoolStore.pool
+        let projects = projects ?? registry.projects
+        let allocated = Set(projects.flatMap { project in
+            project.processes.compactMap { definition -> Int? in
+                guard let port = definition.port, pool.contains(port) else { return nil }
+                return port
             }
-        }
-        return result
+        }).count
+        return (pool.summary, allocated, pool.capacity)
     }
 
-    // MARK: - Ports Overview rows
+    // MARK: - Convention / overview rows
+
+    /// A pool port leased by a registered `[[process]].port`.
+    public struct ConventionRow: Identifiable, Equatable {
+        public let port: Int
+        public let projectName: String
+        public let processName: String
+        public let listener: Listener?
+        public let managedHolder: PortPlanner.ManagedHolder?
+
+        public var id: String { "\(port)::\(projectName)::\(processName)" }
+    }
 
     /// One overview row: a port, who claims it in config, and who (if anyone)
     /// is listening on it right now.
@@ -116,12 +135,78 @@ public final class HarborCoordinator {
         public var id: Int { port }
     }
 
-    /// Pure row model for the Ports Overview (both frontends render it their
-    /// own way). Rows cover the union of claimed and currently-listening ports.
-    public static func overviewRows(projects: [Project],
+    /// Only process ports that fall inside `pool`. One row per lease so an
+    /// overlap still shows both projects. Unused pool ports are omitted.
+    nonisolated public static func conventionRows(pool: PortPool,
+                                      projects: [Project],
+                                      listeners: [Listener],
+                                      holdersByPID: [pid_t: PortPlanner.ManagedHolder]) -> [ConventionRow] {
+        var listenerByPort: [Int: Listener] = [:]
+        for listener in listeners where listenerByPort[listener.port] == nil {
+            listenerByPort[listener.port] = listener
+        }
+        var rows: [ConventionRow] = []
+        for project in projects {
+            for definition in project.processes {
+                guard let port = definition.port, pool.contains(port) else { continue }
+                let listener = listenerByPort[port]
+                rows.append(ConventionRow(
+                    port: port,
+                    projectName: project.name,
+                    processName: definition.name,
+                    listener: listener,
+                    managedHolder: listener.flatMap { holdersByPID[$0.pid] }
+                ))
+            }
+        }
+        return rows.sorted {
+            if $0.port != $1.port { return $0.port < $1.port }
+            if $0.projectName != $1.projectName { return $0.projectName < $1.projectName }
+            return $0.processName < $1.processName
+        }
+    }
+
+    /// Claims that are not Harbor-convention leases: `[[port_claim]]`s and
+    /// process ports outside the pool (framework defaults, hardcoded 5173, …).
+    nonisolated public static func otherClaimRows(pool: PortPool,
+                                      projects: [Project],
+                                      listeners: [Listener],
+                                      holdersByPID: [pid_t: PortPlanner.ManagedHolder]) -> [OverviewRow] {
+        var namesByPort: [Int: Set<String>] = [:]
+        var detailsByPort: [Int: [String]] = [:]
+        func register(port: Int, projectName: String, detail: String) {
+            namesByPort[port, default: []].insert(projectName)
+            detailsByPort[port, default: []].append("\(projectName) — \(detail)")
+        }
+        for project in projects {
+            for definition in project.processes {
+                guard let port = definition.port, !pool.contains(port) else { continue }
+                register(port: port, projectName: project.name, detail: "process \(definition.name)")
+            }
+            for claim in project.portClaims {
+                let note = claim.note ?? "claim"
+                register(port: claim.port, projectName: project.name, detail: note)
+            }
+        }
+        var listenerByPort: [Int: Listener] = [:]
+        for listener in listeners where listenerByPort[listener.port] == nil {
+            listenerByPort[listener.port] = listener
+        }
+        return namesByPort.keys.sorted().map { port in
+            let listener = listenerByPort[port]
+            return OverviewRow(port: port,
+                               projectNames: (namesByPort[port] ?? []).sorted(),
+                               claimDetails: detailsByPort[port] ?? [],
+                               listener: listener,
+                               managedHolder: listener.flatMap { holdersByPID[$0.pid] })
+        }
+    }
+
+    /// Union of claimed and currently-listening ports (Listening Ports already
+    /// covers unclaimed listeners; kept for overlap planning helpers).
+    nonisolated public static func overviewRows(projects: [Project],
                                     listeners: [Listener],
-                                    holdersByPID: [pid_t: PortPlanner.ManagedHolder],
-                                    assignedPorts: [ProcessKey: Int]) -> [OverviewRow] {
+                                    holdersByPID: [pid_t: PortPlanner.ManagedHolder]) -> [OverviewRow] {
         var namesByPort: [Int: Set<String>] = [:]
         var detailsByPort: [Int: [String]] = [:]
         func register(port: Int, projectName: String, detail: String) {
@@ -132,12 +217,6 @@ public final class HarborCoordinator {
             for definition in project.processes {
                 if let port = definition.port {
                     register(port: port, projectName: project.name, detail: "process \(definition.name)")
-                } else if definition.autoPort {
-                    let key = ProcessKey(projectID: project.id, processName: definition.name)
-                    if let assigned = assignedPorts[key] {
-                        register(port: assigned, projectName: project.name,
-                                 detail: "process \(definition.name) (auto)")
-                    }
                 }
             }
             for claim in project.portClaims {

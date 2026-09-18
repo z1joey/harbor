@@ -94,7 +94,6 @@ public enum HarborConfigParser {
             }
 
             var port: Int?
-            var autoPort = false
             if let parsedPort = entry["port"]?.int {
                 guard parsedPort >= 1, parsedPort <= 65535 else {
                     throw HarborConfigError.invalid("Process \"\(processName)\": port \(parsedPort) is out of range (1–65535).")
@@ -102,16 +101,17 @@ public enum HarborConfigParser {
                 port = parsedPort
             } else if let portString = entry["port"]?.string {
                 if portString == "auto" {
-                    autoPort = true
-                } else {
-                    throw HarborConfigError.invalid("Process \"\(processName)\": port must be an integer or \"auto\", not \"\(portString)\".")
+                    throw HarborConfigError.invalid("Process \"\(processName)\": port = \"auto\" is no longer supported; declare an integer port from the Harbor pool (default 8100–8199).")
                 }
+                throw HarborConfigError.invalid("Process \"\(processName)\": port must be an integer 1–65535, not \"\(portString)\".")
+            } else if entry["port"] != nil {
+                throw HarborConfigError.invalid("Process \"\(processName)\": port must be an integer 1–65535.")
             }
 
             var portEnv = "PORT"
             if let envName = entry["port_env"]?.string {
-                guard autoPort else {
-                    throw HarborConfigError.invalid("Process \"\(processName)\": port_env is only allowed when port = \"auto\".")
+                guard port != nil else {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": port_env is only allowed when port is declared.")
                 }
                 guard !envName.isEmpty else {
                     throw HarborConfigError.invalid("Process \"\(processName)\": port_env must be a non-empty string.")
@@ -126,8 +126,8 @@ public enum HarborConfigParser {
 
             var readyURLTemplate: String?
             if let urlString = entry["ready_url"]?.string {
-                if urlString.contains("${port}") && !autoPort {
-                    throw HarborConfigError.invalid("Process \"\(processName)\": ready_url \"\(urlString)\" uses ${port} but port is not \"auto\".")
+                if urlString.contains("${port}") && port == nil {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": ready_url \"\(urlString)\" uses ${port} but no port is declared.")
                 }
                 let validateString = urlString.replacingOccurrences(of: "${port}", with: "1")
                 guard let url = URL(string: validateString), url.scheme != nil else {
@@ -156,7 +156,6 @@ public enum HarborConfigParser {
                 command: command,
                 cwd: entry["cwd"]?.string,
                 port: port,
-                autoPort: autoPort,
                 portEnv: portEnv,
                 readyURLTemplate: readyURLTemplate,
                 autoRestart: entry["auto_restart"]?.bool ?? false,
@@ -237,11 +236,10 @@ public enum HarborConfigParser {
 
     public static func templateText(projectName: String, suggestedPort: Int? = nil) -> String {
         let portComment = suggestedPort.map {
-            "# port = \($0)                  # suggested: no registered project claims \($0)"
-        } ?? "# port = 8000                  # optional, enables conflict detection"
-        let autoPortComment = """
-        # port = "auto"                  # Harbor picks a free port each start; use $PORT in command
-        # port_env = "PORT"              # optional env var name (default PORT)
+            "# port = \($0)                  # suggested pool port: no registered project claims \($0)"
+        } ?? "# port = 8100                  # optional integer 1–65535; prefer a Harbor pool port"
+        let portEnvComment = """
+        # port_env = "PORT"              # optional env var name Harbor injects (default PORT)
         """
 
         return """
@@ -253,8 +251,8 @@ public enum HarborConfigParser {
         command = "echo \\"replace me with your dev command\\" && sleep 3600"
         # cwd = "backend"              # optional, relative to this folder
         \(portComment)
-        \(autoPortComment)
-        # ready_url = "http://127.0.0.1:8000/health"  # optional health gate; use ${port} with port = "auto"
+        \(portEnvComment)
+        # ready_url = "http://127.0.0.1:${port}/health"  # optional health gate; ${port} substitutes the declared port
         # auto_restart = false         # optional, restart on crash
         # env = { "FOO" = "bar" }      # optional environment overrides
 
@@ -266,7 +264,7 @@ public enum HarborConfigParser {
         # process = "dev"              # optional, must match a [[process]] name above
 
         # open_process = "dev"         # optional; "Open in Browser" opens this process (ready_url or :port)
-        # open_url = "http://127.0.0.1:8080/"  # optional static URL; use open_process when port = "auto"
+        # open_url = "http://127.0.0.1:8080/"  # optional static URL; prefer open_process for a live port
         """
     }
 

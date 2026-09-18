@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
     let portObserver: PortObserver
     let registry: ProjectRegistry
     let supervisor: ProcessSupervisor
+    let portPoolStore: PortPoolStore
     /// Shared orchestration (PID resolution, port planning) — same logic the TUI uses.
     let coordinator: HarborCoordinator
 
@@ -69,13 +70,12 @@ final class AppState: ObservableObject {
         portObserver = PortObserver()
         registry = ProjectRegistry()
         supervisor = ProcessSupervisor()
-        coordinator = HarborCoordinator(registry: registry, observer: portObserver, supervisor: supervisor)
+        portPoolStore = PortPoolStore()
+        coordinator = HarborCoordinator(registry: registry, observer: portObserver,
+                                        supervisor: supervisor, portPoolStore: portPoolStore)
         supervisor.onAutoRestartGiveUp = { [weak self] key, message in
             NotificationService.notify(title: "Harbor: process keeps crashing", body: message)
             _ = key
-        }
-        supervisor.portAllocator = { [weak coordinator] _, _ in
-            coordinator?.allocateAutoPort()
         }
         portObserver.start()
         Task { await portObserver.refresh() }
@@ -84,6 +84,7 @@ final class AppState: ObservableObject {
         portObserver.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         registry.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         supervisor.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
+        portPoolStore.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
     }
 
     // MARK: - Derived state
@@ -118,9 +119,9 @@ final class AppState: ObservableObject {
         coordinator.isManagedOrDescendant(pid)
     }
 
-    /// Port numbers free across every registered project and current listener.
-    func suggestedFreePorts(count: Int = 5, from base: Int = 8000) -> [Int] {
-        coordinator.suggestedFreePorts(count: count, from: base)
+    /// Port numbers free in the configured Harbor pool.
+    func suggestedFreePorts(count: Int = 5) -> [Int] {
+        coordinator.suggestedFreePorts(count: count)
     }
 
     /// Batch-resolve managed holders for a listener list (one process-table walk).

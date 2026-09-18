@@ -69,18 +69,19 @@ steps at the bottom.
 - [x] AC5.3 Ports claimed by ≥2 projects are reported as static overlaps, sorted by port. *(service tests: PortPlannerTests overlap cases)*
 - [x] AC5.4 Free-port suggestions skip all claimed and currently listening ports. *(service tests: PortPlannerTests suggestion cases)*
 - [x] AC5.5 A PID maps to its owning managed project/process while running and clears after stop. *(service test: ProcessSupervisorTests key-for-PID)*
-- [ ] AC5.6 Ports Overview shows claims, live status, holders, and overlap banners; sidebar badge counts overlaps. (Manual step M11.)
+- [ ] AC5.6 Port Allocation Convention shows pool leases, other claims, live status, holders, and overlap banners; sidebar badge counts overlaps. (Manual step M11.)
 - [ ] AC5.7 Conflict dialogs offer "free the port & start" (stop managed holder / kill foreign tree) for single and start-all flows. (Dialog wiring is manual step M11; freeing logic reuses the verified stop/kill paths.)
 - [ ] AC5.8 Add-project shows the overlap review screen; import editors show overlap hints + free-port suggestions; template comment carries the suggested port. (Manual step M11.)
 
-## Task 6 — Auto port assignment
+## Task 6 — Port pool and sticky PORT inject
 
-- [x] AC6.1 `port = "auto"` parses; invalid port strings, `port_env` without auto, and `${port}` in ready_url without auto are rejected. *(service tests: ConfigParserTests auto-port cases)*
-- [x] AC6.2 Starting an auto-port process allocates from 8100–9999, injects `PORT`, and logs the assignment. *(service tests: ProcessSupervisorTests auto-port cases)*
-- [x] AC6.3 `PortPlanner.allocatePort` skips taken ports and bind-probes candidates. *(service tests: PortPlannerTests allocation cases)*
-- [x] AC6.4 After ~5s, a process listening on a port other than the assigned/declared one surfaces a verification badge. *(service tests: PortPlannerTests observedListeningPorts + portVerification grace/mismatch cases)*
-- [ ] AC6.5 Project detail shows `:auto` / `:NNNN auto`, mismatch badge, and `$PORT` lint hint; Ports Overview lists running auto ports. (Manual step M12.)
-- [ ] AC6.6 `fixtures/selftest-project` `auto-server` starts on an auto-assigned port and "Open in Browser" uses it. (Manual step M12.)
+- [x] AC6.1 `port` is an optional integer 1–65535; `port = "auto"` is a parse error. `port_env` and `${port}` in `ready_url` require a declared port. *(service tests: ConfigParserTests declared-port cases)*
+- [x] AC6.2 Starting a process with `port = N` injects `PORT=N` (wins over the `env` table) and substitutes `${port}` in `ready_url`. *(service tests: ProcessSupervisorTests declared-port cases)*
+- [x] AC6.3 `PortPlanner.allocatePort` scans the **configured pool** (default 8100–8199), skips taken ports, bind-probes candidates, and does not scan the old 8100–9999 auto band. *(service tests: PortPlannerTests pool allocation cases)*
+- [x] AC6.4 After ~5s, a process listening on a port other than the declared one surfaces a verification badge. *(service tests: PortPlannerTests observedListeningPorts + portVerification grace/mismatch cases)*
+- [x] AC6.5 Port pool store defaults to 8100–8199 when `port-pool.json` is missing; inverted/overlapping/out-of-range ranges are rejected. Convention rows list only leased pool ports; other claims cover `[[port_claim]]` and out-of-pool process ports. *(service tests: PortPoolStoreTests, PortConventionTests)*
+- [ ] AC6.6 Port Allocation Convention GUI/TUI shows pool summary, next free, Edit pool, leased rows and other claims; project detail shows `:N`, mismatch badge, and port-not-in-command lint. (Manual step M12.)
+- [ ] AC6.7 `fixtures/selftest-project` `auto-server` starts on sticky port 8100 with `$PORT` and "Open in Browser" uses `http://127.0.0.1:8100/`. (Manual step M12.)
 
 ## Cross-cutting
 
@@ -130,17 +131,20 @@ Launch a freshly built app:
   the child twice → crash notification appears (first use asks permission);
   denying permission silences future ones without errors.
 - **M11 (AC5.6–5.8):** Register two projects claiming the same port (e.g. copy
-  `fixtures/sample-harbor.toml` into a second folder). Ports Overview lists
-  the port with an orange overlap banner and the sidebar badge shows "1".
+  `fixtures/sample-harbor.toml` into a second folder). Port Allocation
+  Convention lists the port with an orange overlap banner and the sidebar badge
+  shows "1".
   With project A running, start the colliding process of project B → the
   dialog names A's project · process and offers "Stop … & start" → confirming
   stops A's process and starts B's. Re-add a project whose config claims an
   overlap → the Add flow shows the review screen with free-port suggestions.
-- **M12 (AC6.5/6.6):** Start `auto-server` in the selftest project → row shows
-  `:NNNN auto`; after ~5s no mismatch badge; "Open in Browser" opens the
-  assigned URL. Ports Overview lists the port as "(auto)". Stop and restart
-  → a (possibly different) port is assigned. Optionally start a process whose
-  command ignores `$PORT` → after ~5s an orange mismatch badge appears.
+- **M12 (AC6.6/6.7):** Open Port Convention: header shows `8100–8199 · N / 100
+  allocated` and next free; Edit pool… rewrites `port-pool.json`. Start
+  `auto-server` in the selftest project → row shows `:8100`; after ~5s no
+  mismatch badge; "Open in Browser" opens `http://127.0.0.1:8100/`. Convention
+  lists 8100 as a pool lease (not every unused port in 8100–8199). Stop and
+  restart → still 8100. Optionally start a process whose command ignores
+  `$PORT` and the declared number → after ~5s an orange mismatch badge appears.
 
 ## TUI — v1.0.0 (`harbor-tui`)
 
@@ -151,7 +155,7 @@ the TUI-specific manual checks; run `harbor-tui` in Terminal.app/iTerm with
 
 - [ ] TUI-T1 Launch: alternate screen opens, top bar shows project/running
       counts, Projects panel lists every registered project with process rows,
-      status dots and port labels (`:8000`, `:auto`, `:NNNN auto`). (PTY smoke
+      status dots and port labels (`:8000`, `:8100`). (PTY smoke
       verified render + clean exit during development.)
 - [ ] TUI-T2 `j/k`/arrows move selection; `1/2/3`/`Tab` switch panels; bottom
       hint line reflects the active panel.
@@ -169,8 +173,9 @@ the TUI-specific manual checks; run `harbor-tui` in Terminal.app/iTerm with
 - [ ] TUI-T7 Ports panel: listening table shows managed holders with
       `● harbor`; `m` toggles mine-only; `/` filters live; `x` on a foreign
       listener asks the kill confirmation and terminates the tree.
-- [ ] TUI-T8 `v` switches to Ports Overview: claims ∪ listeners, free /
-      managed / external statuses, holder column; static-overlap rows carry ⚠.
+- [ ] TUI-T8 `v` switches to Port Allocation Convention: pool summary + next
+      free, leased pool-port rows, other-claims section, free / managed /
+      external statuses, holder column; static-overlap rows carry ⚠.
 - [ ] TUI-T9 `:add <path>` on a folder with config shows the overlap review
       when it collides (add anyway / cancel); on a folder without config it
       offers template + numbered Procfile/package.json drafts (free-port hint).
