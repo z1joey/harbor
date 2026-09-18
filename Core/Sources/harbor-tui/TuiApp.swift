@@ -50,9 +50,6 @@ final class TuiApp {
             case killListener(Listener)
             case startProcess(Project, ProcessDefinition, ProcessKey, PortPlanner.RuntimeConflict)
             case startAllConflicts(Project, [PortPlanner.RuntimeConflict])
-            case removeProject(Project)
-            case addProjectWithOverlaps(URL, [PortPlanner.StaticOverlap])
-            case addMissingConfig(URL, templateSuggestion: Int?, drafts: [ConfigImporter.Draft])
         }
 
         let message: String
@@ -68,6 +65,7 @@ final class TuiApp {
     // MARK: - Lifecycle
 
     init() throws {
+        HarborStoreLocation.migrateLegacyStoresIfNeeded()
         terminal = try TerminalController()
         registry = ProjectRegistry()
         observer = PortObserver()
@@ -189,29 +187,6 @@ final class TuiApp {
             case "a":
                 startAll(project, force: true)
             default: break
-            }
-        case .removeProject(let project):
-            if choice == "y" {
-                registry.remove(projectID: project.id)
-                showFlash("removed \(project.name) (files untouched)", style: Style(fg: .green))
-            }
-        case .addProjectWithOverlaps(let root, _):
-            if choice == "a" {
-                performAdd(root: root, createTemplateIfMissing: false, suggestedPort: nil)
-            }
-        case .addMissingConfig(let root, let suggestion, let drafts):
-            if choice == "t" {
-                performAdd(root: root, createTemplateIfMissing: true, suggestedPort: suggestion)
-            } else if let digit = choice?.wholeNumberValue, digit >= 1, digit <= drafts.count {
-                let draft = drafts[digit - 1]
-                let configURL = root.appendingPathComponent(HarborConfigParser.configNames[0])
-                do {
-                    try draft.toml.write(to: configURL, atomically: true, encoding: .utf8)
-                    performAdd(root: root, createTemplateIfMissing: false, suggestedPort: nil)
-                    showFlash("wrote harbor.toml from \(draft.sourceName) — review & edit it", style: Style(fg: .green))
-                } catch {
-                    showFlash("could not write harbor.toml: \(error.localizedDescription)", style: Style(fg: .red))
-                }
             }
         }
         draw()
@@ -550,31 +525,6 @@ final class TuiApp {
         let parts = input.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard !parts.isEmpty else { draw(); return }
         switch parts[0].lowercased() {
-        case "add":
-            guard parts.count >= 2 else {
-                showFlash("usage: :add <path>", style: Style(fg: .yellow))
-                draw()
-                return
-            }
-            addFlow(path: parts[1])
-        case "remove":
-            let project: Project?
-            if parts.count >= 2 {
-                let name = parts[1]
-                project = registry.projects.first { $0.name == name || $0.root.lastPathComponent == name }
-                if project == nil {
-                    showFlash("no project named \(name)", style: Style(fg: .red))
-                    break
-                }
-            } else {
-                project = selectedProject
-            }
-            if let project {
-                overlay = .confirm(Confirmation(
-                    message: "remove \(project.name) from Harbor? (files untouched)",
-                    options: [ConfirmBar.Option(key: "y", label: "remove"), ConfirmBar.Option(key: "n", label: "cancel")],
-                    action: .removeProject(project)))
-            }
         case "refresh":
             registry.reloadAll()
             Task { await observer.refresh() }
@@ -582,64 +532,10 @@ final class TuiApp {
         case "q", "quit":
             requestQuit()
         default:
-            showFlash("unknown command: \(parts[0]) (try add/remove/refresh/q)", style: Style(fg: .yellow))
+            showFlash("unknown command: \(parts[0]) (try refresh/q; registration lives in ~/.harbor via the harbor-toml skill)",
+                      style: Style(fg: .yellow))
         }
         draw()
-    }
-
-    private func addFlow(path: String) {
-        let expanded = (path as NSString).expandingTildeInPath
-        let root = URL(fileURLWithPath: expanded)
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            showFlash("not a folder: \(path)", style: Style(fg: .red))
-            return
-        }
-        if HarborConfigParser.locateConfig(in: root) != nil {
-            let overlaps = overlapsWhenAdding(root: root)
-            if overlaps.isEmpty {
-                performAdd(root: root, createTemplateIfMissing: false, suggestedPort: nil)
-            } else {
-                let ports = overlaps.map { String($0.port) }.joined(separator: ", ")
-                let also = overlaps.flatMap(\.projects).joined(separator: ", ")
-                overlay = .confirm(Confirmation(
-                    message: "port(s) \(ports) also claimed by \(also) — add anyway?",
-                    options: [ConfirmBar.Option(key: "a", label: "add anyway"), ConfirmBar.Option(key: "c", label: "cancel")],
-                    action: .addProjectWithOverlaps(root, overlaps)))
-            }
-            return
-        }
-        let drafts = ConfigImporter.drafts(in: root)
-        let suggestion = coordinator.suggestedFreePorts(count: 1).first
-        var options = [ConfirmBar.Option(key: "t", label: "create template" + (suggestion.map { " (port \($0))" } ?? ""))]
-        for (index, draft) in drafts.prefix(4).enumerated() {
-            options.append(ConfirmBar.Option(key: Character("\(index + 1)"), label: "import \(draft.sourceName)"))
-        }
-        options.append(ConfirmBar.Option(key: "c", label: "cancel"))
-        overlay = .confirm(Confirmation(
-            message: "no harbor.toml in \(root.lastPathComponent)" + (suggestion.map { " — free port: \($0)" } ?? ""),
-            options: options,
-            action: .addMissingConfig(root, templateSuggestion: suggestion, drafts: Array(drafts))))
-    }
-
-    private func performAdd(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int?) {
-        switch registry.add(root: root, createTemplateIfMissing: createTemplateIfMissing, suggestedPort: suggestedPort) {
-        case .success(let project):
-            showFlash("added \(project.name)", style: Style(fg: .green))
-        case .failure(let error):
-            showFlash(error.localizedDescription, style: Style(fg: .red))
-        }
-    }
-
-    private func overlapsWhenAdding(root: URL) -> [PortPlanner.StaticOverlap] {
-        guard case .success(let parsed) = HarborConfigParser.parse(root: root) else { return [] }
-        let candidate = Project(root: root, name: parsed.name, processes: parsed.processes,
-                                portClaims: parsed.portClaims,
-                                openProcessName: parsed.openProcessName, openURL: parsed.openURL,
-                                configFileName: parsed.configName, configError: nil)
-        let candidatePorts = candidate.claimedPorts
-        return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
-            .filter { candidatePorts.contains($0.port) }
     }
 
     // MARK: - Quit
@@ -834,7 +730,7 @@ final class TuiApp {
     private func hintText() -> String {
         switch panel {
         case .projects:
-            return "⏎ logs · s start · S start all · x stop · X stop all · r restart · : add/remove/refresh"
+            return "⏎ logs · s start · S start all · x stop · X stop all · r restart · : refresh"
         case .logs:
             return "f follow · c clear · j/k scroll · PgUp/PgDn page"
         case .ports:

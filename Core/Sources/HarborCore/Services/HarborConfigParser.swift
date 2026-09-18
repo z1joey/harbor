@@ -233,43 +233,4 @@ public enum HarborConfigParser {
         }
         return claims
     }
-
-    public static func templateText(projectName: String, suggestedPort: Int? = nil) -> String {
-        let portComment = suggestedPort.map {
-            "# port = \($0)                  # suggested pool port: no registered project claims \($0)"
-        } ?? "# port = 8100                  # optional integer 1–65535; prefer a Harbor pool port"
-        let portEnvComment = """
-        # port_env = "PORT"              # optional env var name Harbor injects (default PORT)
-        """
-
-        return """
-        name = "\(Self.escape(projectName))"
-
-        # Rename and fill in your processes below, then start them from Harbor.
-        [[process]]
-        name = "dev"
-        command = "echo \\"replace me with your dev command\\" && sleep 3600"
-        # cwd = "backend"              # optional, relative to this folder
-        \(portComment)
-        \(portEnvComment)
-        # ready_url = "http://127.0.0.1:${port}/health"  # optional health gate; ${port} substitutes the declared port
-        # auto_restart = false         # optional, restart on crash
-        # env = { "FOO" = "bar" }      # optional environment overrides
-
-        # Ports the project relies on without one owning [[process]] — a
-        # database, broker, … — so Harbor can warn before two projects collide.
-        # [[port_claim]]
-        # port = 5432
-        # note = "postgres"
-        # process = "dev"              # optional, must match a [[process]] name above
-
-        # open_process = "dev"         # optional; "Open in Browser" opens this process (ready_url or :port)
-        # open_url = "http://127.0.0.1:8080/"  # optional static URL; prefer open_process for a live port
-        """
-    }
-
-    public static func escape(_ value: String) -> String {
-        value.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-    }
 }

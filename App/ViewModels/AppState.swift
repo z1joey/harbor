@@ -27,8 +27,6 @@ final class AppState: ObservableObject {
     /// Whether the main window is open. The menubar popover only offers its
     /// port filter while the full window (with the ports table) is available.
     @Published var isMainWindowOpen = false
-    /// Drives the Add Project sheet from the Project menu or other entry points.
-    @Published var showAddProjectSheet = false
 
     struct PendingConflict: Identifiable {
         let key: ProcessKey
@@ -67,6 +65,7 @@ final class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     init() {
+        HarborStoreLocation.migrateLegacyStoresIfNeeded()
         portObserver = PortObserver()
         registry = ProjectRegistry()
         supervisor = ProcessSupervisor()
@@ -119,11 +118,6 @@ final class AppState: ObservableObject {
         coordinator.isManagedOrDescendant(pid)
     }
 
-    /// Port numbers free in the configured Harbor pool.
-    func suggestedFreePorts(count: Int = 5) -> [Int] {
-        coordinator.suggestedFreePorts(count: count)
-    }
-
     /// Batch-resolve managed holders for a listener list (one process-table walk).
     func managedHolders(for listeners: [Listener]) -> [pid_t: PortPlanner.ManagedHolder] {
         coordinator.managedHolders(for: listeners)
@@ -147,35 +141,6 @@ final class AppState: ObservableObject {
             }
         }
         return result
-    }
-
-    /// Static overlaps the config at `root` (if parseable) would create
-    /// against the already-registered projects.
-    func overlapsWhenAdding(root: URL) -> [PortPlanner.StaticOverlap] {
-        guard case .success(let parsed) = HarborConfigParser.parse(root: root) else { return [] }
-        let candidate = Project(root: root, name: parsed.name, processes: parsed.processes,
-                                portClaims: parsed.portClaims,
-                                openProcessName: parsed.openProcessName, openURL: parsed.openURL,
-                                configFileName: parsed.configName, configError: nil)
-        let candidatePorts = candidate.claimedPorts
-        return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
-            .filter { candidatePorts.contains($0.port) }
-    }
-
-    /// Static overlaps a draft TOML (import editor) would create against the
-    /// already-registered projects. The draft's own name is stripped from the
-    /// project lists for direct display.
-    func overlapsInDraft(_ text: String) -> [PortPlanner.StaticOverlap] {
-        guard let parsed = try? HarborConfigParser.parse(text: text) else { return [] }
-        let candidate = Project(root: URL(fileURLWithPath: "/harbor-draft"), name: parsed.name ?? "draft",
-                                processes: parsed.processes, portClaims: parsed.portClaims,
-                                openProcessName: parsed.openProcessName, openURL: parsed.openURL,
-                                configFileName: nil, configError: nil)
-        let candidatePorts = candidate.claimedPorts
-        return PortPlanner.staticOverlaps(projects: registry.projects + [candidate])
-            .filter { candidatePorts.contains($0.port) }
-            .map { PortPlanner.StaticOverlap(port: $0.port,
-                                             projects: $0.projects.filter { $0 != candidate.name }) }
     }
 
     // MARK: - Process actions
@@ -386,70 +351,6 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Projects
-
-    enum AddOutcome {
-        case added(Project)
-        case missingConfig
-    }
-
-    func addProject(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int? = nil) -> Result<AddOutcome, HarborError> {
-        switch registry.add(root: root, createTemplateIfMissing: createTemplateIfMissing, suggestedPort: suggestedPort) {
-        case .success(let project):
-            return .success(.added(project))
-        case .failure(let error as ProjectRegistry.AddError) where error == .missingConfig:
-            return .success(.missingConfig)
-        case .failure(let error):
-            return .failure(HarborError(error.localizedDescription))
-        }
-    }
-
-    func configExists(at root: URL) -> Bool {
-        HarborConfigParser.locateConfig(in: root) != nil
-    }
-
-    func createTemplateConfig(at root: URL) -> Result<URL, HarborError> {
-        switch registry.createTemplate(root: root) {
-        case .success(let url): return .success(url)
-        case .failure(let error): return .failure(HarborError(error.localizedDescription))
-        }
-    }
-
-    /// Shows a native AppKit alert so removal is not blocked by stacked SwiftUI
-    /// dialogs (Menu + confirmationDialog/alert on macOS is unreliable).
-    func requestRemoveProject(_ project: Project) {
-        let alert = NSAlert()
-        alert.messageText = "Remove Project"
-        alert.informativeText = """
-        Harbor will forget this folder, but no files will be deleted.
-
-        \(project.root.path)
-        """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Remove \"\(project.name)\" from Harbor")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        removeProject(project)
-    }
-
-    func removeProject(_ project: Project) {
-        stopProject(project)
-        registry.remove(projectID: project.id)
-    }
-
-    func writeConfig(text: String, at root: URL) -> Result<URL, HarborError> {
-        let url = root.appendingPathComponent("harbor.toml")
-        do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-            registry.reload(projectID: root.path)
-            return .success(url)
-        } catch {
-            return .failure(HarborError("Could not write harbor.toml: \(error.localizedDescription)"))
-        }
-    }
-
-    func importDrafts(at root: URL) -> [ConfigImporter.Draft] {
-        ConfigImporter.drafts(in: root)
-    }
 
     func reloadConfigsIfStale() {
         registry.reloadAll()

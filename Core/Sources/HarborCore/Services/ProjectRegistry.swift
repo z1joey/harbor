@@ -1,14 +1,15 @@
 import Foundation
 import Darwin
 
-/// Loads/saves the list of registered project roots
-/// (`~/Library/Application Support/Harbor/projects.json`) and keeps parsed
-/// `Project` values up to date by watching each config file for changes.
+/// Loads the list of registered project roots (`~/.harbor/projects.json`) and
+/// keeps parsed `Project` values up to date by watching each config file for
+/// changes.
 ///
-/// The registry file is shared between frontends (GUI app and TUI may run at
-/// the same time): writes take an flock on a sibling `projects.json.lock`
-/// (atomic rename makes locking the store inode itself racy), and the store
-/// is watched so a frontend picks up the other's registrations.
+/// The registry file is owned by the harbor-toml skill (which appends project
+/// roots, possibly while no Harbor frontend is running); it may also be edited
+/// by hand. Harbor frontends only read it: both the GUI and the TUI watch the
+/// `~/.harbor` directory, so either picks up registrations live — including
+/// the skill's atomic tmp+rename replacement of the store.
 @MainActor
 public final class ProjectRegistry: ObservableObject {
     @Published public private(set) var projects: [Project] = []
@@ -23,10 +24,9 @@ public final class ProjectRegistry: ObservableObject {
         if let storeURL {
             self.storeURL = storeURL
         } else {
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Harbor", isDirectory: true)
-            try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-            self.storeURL = base.appendingPathComponent("projects.json")
+            self.storeURL = HarborStoreLocation.projectsURL
+            try? FileManager.default.createDirectory(
+                at: HarborStoreLocation.harborDirectory, withIntermediateDirectories: true)
         }
         load()
     }
@@ -38,10 +38,6 @@ public final class ProjectRegistry: ObservableObject {
         URL(fileURLWithPath: (url.path as NSString).standardizingPath)
     }
 
-    private func syncStoreFromMemory() {
-        writeStore(projects.map(\.id))
-    }
-
     private func readStore() -> [String] {
         guard let data = FileManager.default.contents(atPath: storeURL.path) else { return [] }
         if let paths = try? JSONDecoder().decode([String].self, from: data) {
@@ -50,40 +46,17 @@ public final class ProjectRegistry: ObservableObject {
         return []
     }
 
-    private func writeStore(_ paths: [String]) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(paths) else { return }
-        withStoreLock {
-            try? data.write(to: storeURL, options: .atomic)
-        }
-        restartStoreWatcher()
-    }
-
-    /// Serializes store writes across frontends. The lock lives in a sibling
-    /// file because `writeStore` replaces the store inode via atomic rename.
-    private func withStoreLock<T>(_ body: () -> T) -> T {
-        let lockURL = storeURL.deletingLastPathComponent().appendingPathComponent("projects.json.lock")
-        let fd = open(lockURL.path, O_CREAT | O_RDWR, 0o644)
-        guard fd >= 0 else { return body() }
-        defer { close(fd) }
-        flock(fd, LOCK_EX)
-        defer { flock(fd, LOCK_UN) }
-        return body()
-    }
-
     // MARK: - Loading
 
     public func load() {
         projects = readStore().map { buildProject(root: normalizedRoot(URL(fileURLWithPath: $0))) }
-        syncStoreFromMemory()
         restartWatchers()
         restartStoreWatcher()
     }
 
-    /// Re-reads the store after another frontend changed it. No write-back
-    /// (the content just came from the store) and a no-op when nothing really
-    /// changed — e.g. our own write bouncing back through the watcher.
+    /// Re-reads the store after the skill (or a hand edit) changed it. A no-op
+    /// when nothing really changed — e.g. directory events caused by the other
+    /// store file being written.
     private func loadFromStore() {
         let paths = readStore()
         guard paths != projects.map(\.id) else { return }
@@ -112,69 +85,6 @@ public final class ProjectRegistry: ObservableObject {
         guard !projects.isEmpty else { return }
         projects = projects.map { buildProject(root: $0.root) }
         restartWatchers()
-    }
-
-    // MARK: - Add / Remove
-
-    public enum AddError: LocalizedError {
-        case notADirectory
-        case alreadyRegistered
-        case missingConfig
-
-        public var errorDescription: String? {
-            switch self {
-            case .notADirectory: return "That path is not a folder."
-            case .alreadyRegistered: return "This folder is already registered."
-            case .missingConfig: return "No harbor.toml found in that folder."
-            }
-        }
-    }
-
-    /// Registers a project root. If the folder has no config and
-    /// `createTemplateIfMissing` is true, writes a starter `harbor.toml` first
-    /// (`suggestedPort` is baked into the template as a conflict-free hint).
-    public func add(root: URL, createTemplateIfMissing: Bool, suggestedPort: Int? = nil) -> Result<Project, Error> {
-        let root = normalizedRoot(root)
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return .failure(AddError.notADirectory)
-        }
-        guard !projects.contains(where: { $0.id == root.path }) else {
-            return .failure(AddError.alreadyRegistered)
-        }
-        if HarborConfigParser.locateConfig(in: root) == nil {
-            guard createTemplateIfMissing else { return .failure(AddError.missingConfig) }
-            switch createTemplate(root: root, suggestedPort: suggestedPort) {
-            case .success: break
-            case .failure(let error): return .failure(error)
-            }
-        }
-        let project = buildProject(root: root)
-        projects.append(project)
-        syncStoreFromMemory()
-        watch(project: project)
-        return .success(project)
-    }
-
-    /// Unregisters the project — files on disk are left alone.
-    public func remove(projectID: String) {
-        projects.removeAll { $0.id == projectID }
-        syncStoreFromMemory()
-        watchers[projectID]?.cancel()
-        watchers[projectID] = nil
-        reloadDebounce[projectID]?.cancel()
-        reloadDebounce[projectID] = nil
-    }
-
-    public func createTemplate(root: URL, suggestedPort: Int? = nil) -> Result<URL, Error> {
-        let url = root.appendingPathComponent("harbor.toml")
-        do {
-            try HarborConfigParser.templateText(projectName: root.lastPathComponent, suggestedPort: suggestedPort)
-                .write(to: url, atomically: true, encoding: .utf8)
-            return .success(url)
-        } catch {
-            return .failure(HarborConfigError.readFailed("Could not write template harbor.toml: \(error.localizedDescription)"))
-        }
     }
 
     /// Re-parses one project's config (config file changed on disk).
@@ -226,16 +136,21 @@ public final class ProjectRegistry: ObservableObject {
         reloadDebounce[projectID] = work
     }
 
-    // MARK: - Store watching (cross-frontend)
+    // MARK: - Store watching
 
+    /// Watches the directory holding the store rather than the store file:
+    /// `~/.harbor/projects.json` may not exist yet (fresh install, the app
+    /// never creates it), and the skill replaces the file via atomic rename —
+    /// both surface as directory events.
     private func restartStoreWatcher() {
         storeWatcher?.cancel()
         storeWatcher = nil
-        let fd = open(storeURL.path, O_EVTONLY)
-        guard fd >= 0 else { return } // store may not exist yet; re-armed on first write
+        let directory = storeURL.deletingLastPathComponent()
+        let fd = open(directory.path, O_EVTONLY)
+        guard fd >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: [.write, .extend, .delete, .rename],
+            eventMask: [.write, .delete, .rename],
             queue: DispatchQueue.global(qos: .utility)
         )
         source.setEventHandler { [weak self] in

@@ -10,10 +10,14 @@ struct ProjectsSidebarView: View {
         List {
             Section("Projects") {
                 if appState.registry.projects.isEmpty {
-                    Text("No projects")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .contextMenu { addProjectContextMenu() }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("No projects yet")
+                            .font(.caption)
+                        Text("Register one with the harbor-toml skill — it writes ~/.harbor and Harbor picks it up automatically.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
                 }
                 ForEach(appState.registry.projects) { project in
                     sidebarButton(
@@ -21,20 +25,12 @@ struct ProjectsSidebarView: View {
                         label: { projectRow(project) }
                     )
                     .contextMenu {
-                        addProjectContextMenu()
-                        Divider()
                         Button("Reveal in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([project.root])
                         }
                         if let configURL = project.configURL() {
                             Button("Open \(configURL.lastPathComponent)…") {
                                 NSWorkspace.shared.open(configURL)
-                            }
-                        }
-                        Divider()
-                        Button("Remove Project", role: .destructive) {
-                            DispatchQueue.main.async {
-                                appState.requestRemoveProject(project)
                             }
                         }
                     }
@@ -75,14 +71,6 @@ struct ProjectsSidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .contextMenu { addProjectContextMenu() }
-    }
-
-    @ViewBuilder
-    private func addProjectContextMenu() -> some View {
-        Button("Add Project…") {
-            appState.showAddProjectSheet = true
-        }
     }
 
     private func sidebarButton<ItemLabel: View>(

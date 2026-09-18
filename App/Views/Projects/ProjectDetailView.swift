@@ -7,9 +7,6 @@ struct ProjectDetailView: View {
     let project: Project
 
     @State private var selectedProcessName: String?
-    @State private var showImportEditor = false
-    @State private var importDraft: ConfigImporter.Draft?
-    @State private var importDraftText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,15 +23,6 @@ struct ProjectDetailView: View {
             logPane
         }
         .projectConflictDialogs(projectID: project.id)
-        .sheet(isPresented: $showImportEditor) {
-            ImportDraftEditor(
-                root: project.root,
-                draft: $importDraft,
-                draftText: $importDraftText,
-                onSaved: { appState.reloadConfigsIfStale() }
-            )
-            .environmentObject(appState)
-        }
     }
 
     // MARK: - Header
@@ -68,21 +56,14 @@ struct ProjectDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Config error").font(.callout).fontWeight(.semibold)
                 Text(text).font(.caption)
-                HStack(spacing: 8) {
-                    if let configURL = project.configURL() {
-                        Button("Fix Config…") {
-                            NSWorkspace.shared.open(configURL)
-                        }
+                if let configURL = project.configURL() {
+                    Button("Fix Config…") {
+                        NSWorkspace.shared.open(configURL)
                     }
-                    if HarborConfigParser.locateConfig(in: project.root) == nil {
-                        Button("Create Template Config") {
-                            _ = appState.createTemplateConfig(at: project.root)
-                            appState.reloadConfigsIfStale()
-                        }
-                    }
-                    Button("Import from Procfile / package.json…") {
-                        openImportEditor()
-                    }
+                } else {
+                    Text("No harbor.toml found. Ask the harbor-toml skill to draft one — refocus this window to reload.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -273,24 +254,5 @@ struct ProjectDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(10)
         }
-    }
-
-    // MARK: - Import
-
-    private func openImportEditor() {
-        let drafts = appState.importDrafts(at: project.root)
-        if let first = drafts.first {
-            importDraft = first
-            importDraftText = first.toml
-        } else {
-            let template = ConfigImporter.Draft(
-                sourceName: "manual template",
-                notes: [],
-                toml: HarborConfigParser.templateText(projectName: project.name)
-            )
-            importDraft = template
-            importDraftText = template.toml
-        }
-        showImportEditor = true
     }
 }
