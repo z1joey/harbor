@@ -77,7 +77,6 @@ struct MenuBarPopoverView: View {
                     }
                     HStack {
                         Button("Free ports & start all") { appState.confirmPendingStartAllConflictsFreeingPorts() }
-                        Button("Start all anyway") { appState.confirmPendingStartAllConflicts() }
                         Spacer()
                         Button("Cancel") { appState.cancelPendingStartAllConflicts() }
                     }

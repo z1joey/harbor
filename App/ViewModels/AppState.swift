@@ -301,13 +301,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    func confirmPendingStartAllConflicts() {
-        guard let pending = pendingStartAllConflicts else { return }
-        pendingStartAllConflicts = nil
-        guard let project = registry.projects.first(where: { $0.id == pending.projectID }) else { return }
-        startProject(project)
-    }
-
     func cancelPendingStartAllConflicts() {
         pendingStartAllConflicts = nil
     }

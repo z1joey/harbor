@@ -50,9 +50,6 @@ struct ProjectConflictDialogs: ViewModifier {
                 Button("Free ports & start all", role: .destructive) {
                     appState.confirmPendingStartAllConflictsFreeingPorts()
                 }
-                Button("Start all anyway", role: .destructive) {
-                    appState.confirmPendingStartAllConflicts()
-                }
                 Button("Cancel", role: .cancel) { appState.cancelPendingStartAllConflicts() }
             } message: { pending in
                 Text(pending.items.map { Self.message(for: $0) }.joined(separator: "\n"))
