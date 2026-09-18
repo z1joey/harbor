@@ -177,8 +177,9 @@ struct ProjectDetailView: View {
         let isSelected = selectedProcessName == definition.name
         let canStart = !status.state.isRunningLike && status.state != .stopping
         let canStop = status.state.isRunningLike || status.state == .stopping
-        let showPortLint = definition.autoPort
-            && !PortPlanner.commandReferencesPortEnv(definition.command, envName: definition.portEnv)
+        let showPortLint = definition.port.map {
+            !PortPlanner.commandReferencesDeclaredPort(definition.command, port: $0, envName: definition.portEnv)
+        } ?? false
 
         return HStack(spacing: 10) {
             Circle()
@@ -212,7 +213,7 @@ struct ProjectDetailView: View {
                         Text("$\(definition.portEnv) not in command")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .help("Add $\(definition.portEnv) to the command so Harbor's assigned port is used.")
+                            .help("Add $\(definition.portEnv) or the declared port number to the command so Harbor's injected port is used.")
                     }
                 }
                 WrappingDetailText(text: definition.command, font: .caption, foreground: .secondary)
@@ -221,17 +222,7 @@ struct ProjectDetailView: View {
                 }
             }
             Spacer()
-            if definition.autoPort {
-                if let assigned = status.assignedPort {
-                    Text(":\(assigned) auto")
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(":auto")
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-            } else if let port = definition.port {
+            if let port = definition.port {
                 Text(":\(port)")
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.secondary)

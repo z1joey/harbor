@@ -5,13 +5,11 @@ public struct ProcessDefinition: Identifiable, Hashable {
     public let name: String
     public let command: String
     public let cwd: String?
-    /// Fixed port from config (`port = 8000`). Nil when `autoPort` is true.
+    /// Declared port from config (`port = 8000`). Nil when the process has no port.
     public let port: Int?
-    /// When true, Harbor picks a free port at each start and injects `portEnv`.
-    public let autoPort: Bool
-    /// Environment variable name for the auto-assigned port (default `PORT`).
+    /// Environment variable name Harbor injects with `port` at start (default `PORT`).
     public let portEnv: String
-    /// Raw `ready_url` template; may contain `${port}` when `autoPort` is true.
+    /// Raw `ready_url` template; may contain `${port}` when `port` is declared.
     public let readyURLTemplate: String?
     public let autoRestart: Bool
     public let env: [String: String]
@@ -22,7 +20,6 @@ public struct ProcessDefinition: Identifiable, Hashable {
                 command: String,
                 cwd: String?,
                 port: Int?,
-                autoPort: Bool = false,
                 portEnv: String = "PORT",
                 readyURLTemplate: String? = nil,
                 autoRestart: Bool = false,
@@ -31,7 +28,6 @@ public struct ProcessDefinition: Identifiable, Hashable {
         self.command = command
         self.cwd = cwd
         self.port = port
-        self.autoPort = autoPort
         self.portEnv = portEnv
         self.readyURLTemplate = readyURLTemplate
         self.autoRestart = autoRestart

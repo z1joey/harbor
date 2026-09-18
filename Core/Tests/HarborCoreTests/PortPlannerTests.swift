@@ -156,23 +156,43 @@ final class PortPlannerTests: XCTestCase {
         XCTAssertEqual(suggestions, [65534, 65535])
     }
 
-    // MARK: - Auto port allocation
+    // MARK: - Pool port suggestions
 
     func testAllocatePortSkipsTakenPorts() {
         let port = PortPlanner.allocatePort(taken: [8100, 8101, 8102], isBindable: { _ in true })
         XCTAssertEqual(port, 8103)
     }
 
-    func testAllocatePortRespectsRange() {
-        var taken = Set(PortPlanner.autoPortRange)
-        taken.remove(9999)
-        let port = PortPlanner.allocatePort(taken: taken, isBindable: { _ in true })
-        XCTAssertEqual(port, 9999)
+    func testAllocatePortUsesConfiguredPoolNotLegacyAutoBand() {
+        let pool = PortPool(ranges: [PortRange(from: 9000, to: 9002)])
+        XCTAssertEqual(PortPlanner.allocatePort(taken: [], pool: pool, isBindable: { _ in true }), 9000)
+        XCTAssertEqual(PortPlanner.allocatePort(taken: [9000], pool: pool, isBindable: { _ in true }), 9001)
+        XCTAssertNil(PortPlanner.allocatePort(taken: [9000, 9001, 9002], pool: pool, isBindable: { _ in true }))
+        // 8100 is free but outside this pool — must not be suggested.
+        XCTAssertNotEqual(PortPlanner.allocatePort(taken: [9000, 9001, 9002], pool: pool, isBindable: { _ in true }), 8100)
     }
 
-    func testAllocatePortReturnsNilWhenRangeExhausted() {
-        let port = PortPlanner.allocatePort(taken: Set(PortPlanner.autoPortRange), isBindable: { _ in true })
-        XCTAssertNil(port)
+    func testAllocatePortRespectsDefaultPoolCeiling() {
+        var taken = Set(8100...8199)
+        taken.remove(8199)
+        let port = PortPlanner.allocatePort(taken: taken, isBindable: { _ in true })
+        XCTAssertEqual(port, 8199)
+        XCTAssertNil(PortPlanner.allocatePort(taken: Set(8100...8199), isBindable: { _ in true }))
+    }
+
+    func testAllocatePortDoesNotScanLegacy9999Band() {
+        // The old auto range was 8100–9999. With the default pool, 8200+ is out.
+        var taken = Set(8100...8199)
+        XCTAssertNil(PortPlanner.allocatePort(taken: taken, isBindable: { _ in true }))
+        taken.remove(8200)
+        XCTAssertNil(PortPlanner.allocatePort(taken: taken, isBindable: { _ in true }),
+                     "8200 is outside the default 8100–8199 pool")
+    }
+
+    func testSuggestFreePortsInPoolSkipsTaken() {
+        let pool = PortPool(ranges: [PortRange(from: 8100, to: 8199)])
+        XCTAssertEqual(PortPlanner.suggestFreePorts(count: 3, pool: pool, taken: [8100, 8101]),
+                       [8102, 8103, 8104])
     }
 
     func testIsBindableRejectsOccupiedPort() throws {
@@ -183,10 +203,11 @@ final class PortPlannerTests: XCTestCase {
         XCTAssertTrue(PortPlanner.isBindable(boundPort + 1))
     }
 
-    func testCommandReferencesPortEnv() {
-        XCTAssertTrue(PortPlanner.commandReferencesPortEnv("npm run dev -- --port $PORT", envName: "PORT"))
-        XCTAssertTrue(PortPlanner.commandReferencesPortEnv("uvicorn --port ${PORT}", envName: "PORT"))
-        XCTAssertFalse(PortPlanner.commandReferencesPortEnv("python3 -m http.server 8123", envName: "PORT"))
+    func testCommandReferencesDeclaredPort() {
+        XCTAssertTrue(PortPlanner.commandReferencesDeclaredPort("python3 -m http.server $PORT", port: 8100, envName: "PORT"))
+        XCTAssertTrue(PortPlanner.commandReferencesDeclaredPort("python3 -m http.server 8100", port: 8100, envName: "PORT"))
+        XCTAssertFalse(PortPlanner.commandReferencesDeclaredPort("python3 -m http.server 81000", port: 8100, envName: "PORT"))
+        XCTAssertFalse(PortPlanner.commandReferencesDeclaredPort("npm run dev", port: 8100, envName: "PORT"))
     }
 
     func testPortMismatch() {
@@ -207,11 +228,11 @@ final class PortPlannerTests: XCTestCase {
 
     func testPortVerificationRespectsGracePeriod() {
         let now = Date()
-        let status = ProcessStatus(state: .running, pid: 10, assignedPort: 8100,
+        let status = ProcessStatus(state: .running, pid: 10,
                                    startedAt: now.addingTimeInterval(-3))
         XCTAssertNil(PortPlanner.portVerification(
             status: status,
-            definitionPort: nil,
+            definitionPort: 8100,
             listeners: [listener(5173, 10)],
             processTable: [(10, 1)],
             now: now
@@ -220,11 +241,11 @@ final class PortPlannerTests: XCTestCase {
 
     func testPortVerificationDetectsMismatchAfterGrace() {
         let now = Date()
-        let status = ProcessStatus(state: .running, pid: 10, assignedPort: 8100,
+        let status = ProcessStatus(state: .running, pid: 10,
                                    startedAt: now.addingTimeInterval(-6))
         let verification = PortPlanner.portVerification(
             status: status,
-            definitionPort: nil,
+            definitionPort: 8100,
             listeners: [listener(5173, 10)],
             processTable: [(10, 1)],
             now: now

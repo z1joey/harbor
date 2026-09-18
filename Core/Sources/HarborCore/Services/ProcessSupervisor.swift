@@ -10,8 +10,6 @@ import Darwin
 public final class ProcessSupervisor: ObservableObject {
     /// Callback for "auto-restart gave up" — AppState wires it to user notifications.
     public var onAutoRestartGiveUp: ((ProcessKey, String) -> Void)?
-    /// Picks a free port for `port = "auto"` processes. AppState wires this to PortPlanner.
-    public var portAllocator: ((ProcessKey, ProcessDefinition) -> Int?)?
 
     private(set) var logBuffers: [ProcessKey: LogBuffer] = [:]
     private var processes: [ProcessKey: ManagedProcess] = [:]
@@ -51,14 +49,6 @@ public final class ProcessSupervisor: ObservableObject {
         processes.values.filter { $0.state.isRunningLike }.count
     }
 
-    /// Ports currently assigned to running-like auto-port processes.
-    public func assignedPorts() -> Set<Int> {
-        Set(processes.values.compactMap { managed in
-            guard managed.state.isRunningLike, let port = managed.assignedPort else { return nil }
-            return port
-        })
-    }
-
     public func key(forPID pid: pid_t) -> ProcessKey? {
         processes.first(where: { $0.value.pid == pid })?.key
     }
@@ -84,20 +74,7 @@ public final class ProcessSupervisor: ObservableObject {
             return fail(managed, message: "Working directory does not exist: \(workDirectory.path)")
         }
 
-        if definition.autoPort {
-            guard let allocator = portAllocator else {
-                return fail(managed, message: "Auto port allocation is not configured.")
-            }
-            guard let allocated = allocator(key, definition) else {
-                return fail(managed, message: "No free port in \(PortPlanner.autoPortRange.lowerBound)–\(PortPlanner.autoPortRange.upperBound).")
-            }
-            managed.assignedPort = allocated
-            managed.logBuffer.appendLine("— Harbor: assigned port \(allocated) (\(definition.portEnv)) —")
-        } else {
-            managed.assignedPort = nil
-        }
-
-        let resolvedPort = managed.assignedPort ?? definition.port
+        let resolvedPort = definition.port
         let resolvedReadyURL = definition.readyURL(port: resolvedPort)
 
         let process = Process()
@@ -106,8 +83,10 @@ public final class ProcessSupervisor: ObservableObject {
         process.arguments = ["-l", "-c", definition.command]
         process.currentDirectoryURL = workDirectory
         var mergedEnv = ProcessInfo.processInfo.environment.merging(definition.env) { _, override in override }
-        if let allocated = managed.assignedPort {
-            mergedEnv[definition.portEnv] = String(allocated)
+        if let port = definition.port {
+            // Declared port wins over a conflicting value in the `env` table.
+            mergedEnv[definition.portEnv] = String(port)
+            managed.logBuffer.appendLine("— Harbor: injecting \(definition.portEnv)=\(port) —")
         }
         process.environment = mergedEnv
         process.standardInput = FileHandle.nullDevice
@@ -256,7 +235,6 @@ public final class ProcessSupervisor: ObservableObject {
         managed.exitCode = exitCode
         managed.process = nil
         managed.pid = nil
-        managed.assignedPort = nil
         managed.ready = nil
         managed.healthTask?.cancel()
         managed.healthTask = nil
@@ -345,7 +323,6 @@ public final class ProcessSupervisor: ObservableObject {
         managed.state = .failed
         managed.process = nil
         managed.pid = nil
-        managed.assignedPort = nil
         managed.logBuffer.appendLine("— Harbor error: \(message) —")
         publish(managed)
         return .failure(HarborError(message))
@@ -358,7 +335,6 @@ public final class ProcessSupervisor: ObservableObject {
             ready: managed.ready,
             exitCode: managed.exitCode,
             restartAttempt: managed.restartAttempts,
-            assignedPort: managed.assignedPort,
             startedAt: managed.startedAt
         )
     }
@@ -386,7 +362,6 @@ private final class ManagedProcess {
     var userInitiatedStop = false
     var healthTask: Task<Void, Never>?
     var restartTask: Task<Void, Never>?
-    var assignedPort: Int?
 
     init(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL, logBuffer: LogBuffer) {
         self.key = key

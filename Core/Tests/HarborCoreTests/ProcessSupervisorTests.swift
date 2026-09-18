@@ -22,12 +22,12 @@ final class ProcessSupervisorTests: XCTestCase {
     }
 
     private func start(_ name: String, command: String, cwd: String? = nil,
-                       port: Int? = nil, autoPort: Bool = false, portEnv: String = "PORT",
+                       port: Int? = nil, portEnv: String = "PORT",
                        readyURLTemplate: String? = nil,
                        autoRestart: Bool = false, env: [String: String] = [:]) -> ProcessKey {
         let key = ProcessKey(projectID: projectRoot.path, processName: name)
         let definition = ProcessDefinition(name: name, command: command, cwd: cwd,
-                                           port: port, autoPort: autoPort, portEnv: portEnv,
+                                           port: port, portEnv: portEnv,
                                            readyURLTemplate: readyURLTemplate,
                                            autoRestart: autoRestart, env: env)
         let result = supervisor.start(key: key, definition: definition, projectRoot: projectRoot)
@@ -135,76 +135,46 @@ final class ProcessSupervisorTests: XCTestCase {
         XCTAssertEqual(supervisor.runningCount(), 0)
     }
 
-    func testAutoPortInjectsEnvAndLogsAssignment() async throws {
-        var nextPort = 8200
-        supervisor.portAllocator = { _, _ in
-            let port = nextPort
-            nextPort += 1
-            return port
-        }
-        let key = start("auto", command: "echo port=$PORT; sleep 30", autoPort: true)
+    func testDeclaredPortInjectsEnvAndSubstitutesReadyURL() async throws {
+        let key = start("sticky",
+                        command: "echo port=$PORT; sleep 30",
+                        port: 18765,
+                        readyURLTemplate: "http://127.0.0.1:${port}/")
         defer { Task { await supervisor.stop(key: key) } }
 
         try await Task.sleep(nanoseconds: 1_500_000_000)
         let status = supervisor.status(for: key)
-        XCTAssertEqual(status.assignedPort, 8200)
         XCTAssertEqual(status.state, .running)
-        XCTAssertTrue(supervisor.logBuffer(for: key).snapshot().contains { $0.contains("assigned port 8200") })
-        XCTAssertTrue(supervisor.logBuffer(for: key).snapshot().contains { $0.contains("port=8200") })
-        XCTAssertEqual(supervisor.assignedPorts(), [8200])
+        let logs = supervisor.logBuffer(for: key).snapshot()
+        XCTAssertTrue(logs.contains { $0.contains("injecting PORT=18765") }, "missing inject log: \(logs)")
+        XCTAssertTrue(logs.contains { $0.contains("port=18765") }, "env not injected: \(logs)")
+        let definition = ProcessDefinition(name: "sticky", command: "echo", cwd: nil, port: 18765,
+                                           readyURLTemplate: "http://127.0.0.1:${port}/")
+        XCTAssertEqual(definition.readyURL(port: 18765)?.absoluteString, "http://127.0.0.1:18765/")
     }
 
-    func testAutoPortRestartGetsNewAssignment() async throws {
-        var nextPort = 8300
-        supervisor.portAllocator = { _, _ in
-            let port = nextPort
-            nextPort += 1
-            return port
-        }
-        let key = start("auto", command: "sleep 300", autoPort: true)
+    func testDeclaredPortRestartKeepsSamePort() async throws {
+        let key = start("sticky", command: "sleep 300", port: 18766)
         try await Task.sleep(nanoseconds: 800_000_000)
-        XCTAssertEqual(supervisor.status(for: key).assignedPort, 8300)
+        XCTAssertTrue(supervisor.logBuffer(for: key).snapshot().contains { $0.contains("injecting PORT=18766") })
 
         await supervisor.restart(key: key, projectRoot: projectRoot)
         try await Task.sleep(nanoseconds: 1_500_000_000)
-        XCTAssertEqual(supervisor.status(for: key).assignedPort, 8301)
+        XCTAssertTrue(supervisor.logBuffer(for: key).snapshot().contains { $0.contains("injecting PORT=18766") })
+        XCTAssertEqual(supervisor.status(for: key).state, .running)
 
         await supervisor.stop(key: key)
     }
 
-    func testFailClearsStaleAssignedPortFromPriorRun() async throws {
-        var nextPort = 8400
-        supervisor.portAllocator = { _, _ in
-            let port = nextPort
-            nextPort += 1
-            return port
-        }
-        let key = start("auto", command: "sleep 30", autoPort: true)
-        try await Task.sleep(nanoseconds: 800_000_000)
-        XCTAssertEqual(supervisor.status(for: key).assignedPort, 8400)
+    func testDeclaredPortWinsOverEnvTable() async throws {
+        let key = start("sticky", command: "echo port=$PORT; sleep 30",
+                        port: 18767, env: ["PORT": "9999"])
+        defer { Task { await supervisor.stop(key: key) } }
 
-        await supervisor.stop(key: key)
-        supervisor.portAllocator = nil
-
-        let definition = ProcessDefinition(name: "auto", command: "sleep 30", cwd: nil,
-                                           port: nil, autoPort: true, autoRestart: false, env: [:])
-        _ = supervisor.start(key: key, definition: definition, projectRoot: projectRoot)
-        XCTAssertEqual(supervisor.status(for: key).state, .failed)
-        XCTAssertNil(supervisor.status(for: key).assignedPort,
-                     "assignedPort from a prior run must not linger after fail()")
-    }
-
-    func testAutoPortAllocatorReturningNilFailsStart() {
-        supervisor.portAllocator = { _, _ in nil }
-        let key = ProcessKey(projectID: projectRoot.path, processName: "no-port")
-        let definition = ProcessDefinition(name: "no-port", command: "sleep 1", cwd: nil,
-                                           port: nil, autoPort: true, autoRestart: false, env: [:])
-        let result = supervisor.start(key: key, definition: definition, projectRoot: projectRoot)
-        guard case .failure(let error) = result else {
-            return XCTFail("expected failure when no port is available")
-        }
-        XCTAssertTrue(error.message.contains("8100"))
-        XCTAssertEqual(supervisor.status(for: key).state, .failed)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        let logs = supervisor.logBuffer(for: key).snapshot()
+        XCTAssertTrue(logs.contains { $0.contains("port=18767") }, "declared port must win over env table: \(logs)")
+        XCTAssertFalse(logs.contains { $0.contains("port=9999") && !$0.contains("18767") })
     }
 
     func testMissingWorkingDirectoryFailsStart() {

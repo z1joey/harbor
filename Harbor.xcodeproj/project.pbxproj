@@ -18,6 +18,7 @@
 		8557CE63A5EDF65E7A28FEB3 /* ProjectConflictDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB56E0976E879E0757E7D567 /* ProjectConflictDialogs.swift */; };
 		886AEB8DD915C21A0348EF1E /* HarborCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050854E067A31008516889D8 /* HarborCommands.swift */; };
 		A8A7257B7E4F68A86E465979 /* HarborCore in Frameworks */ = {isa = PBXBuildFile; productRef = 98EA2D80A397ADC5AB7B6829 /* HarborCore */; };
+		AB38A37AECFD0424D87630E8 /* PortPoolEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E47162057A3DF3F68EE0A54 /* PortPoolEditorSheet.swift */; };
 		B45BB1E86956462C86D82D85 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013ED848CDB4FE949F6A3CA3 /* Support.swift */; };
 		CF8ADA63F37E0D0163B4501E /* HarborApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 398F0A1C74D4C354D41533F2 /* HarborApp.swift */; };
 		DB55F278A130297057AF4B1F /* PortsTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2FA04ED38151DF692F10DF /* PortsTableView.swift */; };
@@ -31,6 +32,7 @@
 		050854E067A31008516889D8 /* HarborCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborCommands.swift; sourceTree = "<group>"; };
 		1B3BB63CADE100ED5B2F71AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1CF9540CC0A7007912151E46 /* PortsOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortsOverviewView.swift; sourceTree = "<group>"; };
+		2E47162057A3DF3F68EE0A54 /* PortPoolEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPoolEditorSheet.swift; sourceTree = "<group>"; };
 		387E1E73EE608A153ABADF72 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
 		398F0A1C74D4C354D41533F2 /* HarborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborApp.swift; sourceTree = "<group>"; };
 		5169676C9DF1E0DD319DA02D /* ProjectDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDetailView.swift; sourceTree = "<group>"; };
@@ -100,6 +102,7 @@
 		A2FACBE273FB9A99D8C72FFA /* Ports */ = {
 			isa = PBXGroup;
 			children = (
+				2E47162057A3DF3F68EE0A54 /* PortPoolEditorSheet.swift */,
 				1CF9540CC0A7007912151E46 /* PortsOverviewView.swift */,
 				FA2FA04ED38151DF692F10DF /* PortsTableView.swift */,
 			);
@@ -223,6 +226,7 @@
 				2C8CA50428A7C0407256C1FC /* MainWindowView.swift in Sources */,
 				35406E2F0BFBE3815FFC3131 /* MenuBarPopoverView.swift in Sources */,
 				0B312B29A13A3B3242A9CEB1 /* NotificationService.swift in Sources */,
+				AB38A37AECFD0424D87630E8 /* PortPoolEditorSheet.swift in Sources */,
 				F92C9C8C44BD84223E4B6FD2 /* PortsOverviewView.swift in Sources */,
 				DB55F278A130297057AF4B1F /* PortsTableView.swift in Sources */,
 				8557CE63A5EDF65E7A28FEB3 /* ProjectConflictDialogs.swift in Sources */,
@@ -292,7 +296,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -355,7 +359,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.3;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

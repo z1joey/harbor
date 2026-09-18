@@ -50,9 +50,9 @@ struct ProjectsPanel {
                     info = "⚠ port held by \(conflict.holderLabel)"
                 } else if let verification = verifications[key] {
                     info = "⚠ listening on \(verification.observed.sorted().map(String.init).joined(separator: ", ")), expected \(verification.expected)"
-                } else if definition.autoPort,
-                          !PortPlanner.commandReferencesPortEnv(definition.command, envName: definition.portEnv) {
-                    info = "command does not use $\(definition.portEnv)"
+                } else if let port = definition.port,
+                          !PortPlanner.commandReferencesDeclaredPort(definition.command, port: port, envName: definition.portEnv) {
+                    info = "command does not use $\(definition.portEnv) or \(port)"
                 }
                 let stateChar = "●"
                 let rowStyle = Style(fg: stateColor(status.state))
@@ -99,11 +99,7 @@ struct ProjectsPanel {
         }
     }
 
-    static func portLabel(_ definition: ProcessDefinition, _ status: ProcessStatus) -> String {
-        if definition.autoPort {
-            if let assigned = status.assignedPort { return ":\(assigned) auto" }
-            return ":auto"
-        }
+    static func portLabel(_ definition: ProcessDefinition, _: ProcessStatus) -> String {
         if let port = definition.port { return ":\(port)" }
         return "—"
     }

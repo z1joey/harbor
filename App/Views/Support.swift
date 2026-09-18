@@ -44,8 +44,8 @@ func statusText(_ status: ProcessStatus) -> String {
     }
 }
 
-func livePort(for definition: ProcessDefinition, status: ProcessStatus) -> Int? {
-    status.assignedPort ?? definition.port
+func livePort(for definition: ProcessDefinition, status _: ProcessStatus) -> Int? {
+    definition.port
 }
 
 /// Browser URL for one process: `ready_url` when set, else `http://127.0.0.1:<port>/`.
@@ -70,12 +70,8 @@ func browserURL(for project: Project, status: (ProcessKey) -> ProcessStatus) -> 
     return browserURL(for: definition, status: status(key))
 }
 
-/// Compact port suffix for inline labels (`:8000`, `:auto`).
+/// Compact port suffix for inline labels (`:8000`).
 func portLabel(for definition: ProcessDefinition, status: ProcessStatus) -> String? {
-    if definition.autoPort {
-        if let assigned = status.assignedPort { return ":\(assigned)" }
-        return ":auto"
-    }
     if let port = definition.port { return ":\(port)" }
     return nil
 }
@@ -87,8 +83,6 @@ func processStatusHelp(definition: ProcessDefinition,
     var parts = [statusText(status)]
     if let port = livePort(for: definition, status: status) {
         parts.append("port \(port)")
-    } else if definition.autoPort {
-        parts.append("port auto (assigned at start)")
     }
     if let pid = status.pid {
         parts.append("PID \(pid)")

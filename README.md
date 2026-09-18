@@ -41,7 +41,7 @@ open ~/Library/Developer/Xcode/DerivedData/Harbor-*/Build/Products/Debug/Harbor.
 You get a ferry icon in the menu bar (no Dock icon). The popover offers
 managed projects with status dots, Start/Stop all, a compact listening-ports
 list with kill, and "Open Harbor…" for the full main window (sidebar:
-**Projects** | **Ports Overview** | **Listening Ports** — filter lives here).
+**Projects** | **Port Convention** | **Listening Ports** — filter lives here).
 "Quit Harbor" stops all managed processes and exits.
 
 ## Registering a project
@@ -64,8 +64,8 @@ name = "steward"                 # optional; defaults to the folder name
 name = "api"                     # required, unique within the project
 command = "uv run uvicorn app.main:app --reload"  # required; run via /bin/zsh -lc
 cwd = "backend"                  # optional, relative to project root
-port = 8000                      # optional; enables conflict detection + linking
-ready_url = "http://127.0.0.1:8000/health"  # optional; "ready" health gate
+port = 8000                      # optional integer 1–65535; Harbor injects $PORT
+ready_url = "http://127.0.0.1:8000/health"  # optional; "ready" health gate; ${port} ok
 auto_restart = false             # optional; restart on unexpected exit
 env = { "FOO" = "bar" }          # optional env overrides on top of your environment
 
@@ -80,26 +80,45 @@ Commands run inside a **login shell** (`/bin/zsh -lc`), so your usual PATH
 (with line/column); the project stays registered with a visible error banner
 until fixed.
 
-### Automatic ports
+### Port pool and sticky `$PORT`
 
-Set `port = "auto"` to let Harbor pick a free port from **8100–9999** on each
-start (nothing is persisted — the number changes every run). Harbor injects the
-chosen port as the `PORT` environment variable (override the name with
-`port_env`). Reference it in your command via `$PORT`:
+Harbor no longer assigns a new port at every start. Declare `port = N` (an
+integer 1–65535). At start Harbor injects that number as the `PORT` environment
+variable (override the name with `port_env`) so commands can keep using `$PORT`.
+`${port}` in `ready_url` is substituted with `N`.
+
+The **port pool** is an app setting — which ports Harbor may hand out when a
+project is registered. It lives next to the project list:
+
+`~/Library/Application Support/Harbor/port-pool.json`
+
+```json
+{ "ranges": [{ "from": 8100, "to": 8199 }] }
+```
+
+Missing file → default **8100–8199**. Edit the ranges from the main window's
+**Port Convention** sidebar (**Edit pool…**). The companion harbor-toml skill
+reads the same file and writes the next free pool port into `harbor.toml`.
 
 ```toml
 [[process]]
 name = "api"
 command = "uv run uvicorn app.main:app --reload --port $PORT"
-port = "auto"
+port = 8100
 ready_url = "http://127.0.0.1:${port}/health"
 ```
 
-`${port}` in `ready_url` is only allowed with `port = "auto"`. After ~5s,
-Harbor checks that the process tree is listening on the assigned port; if it
-bound somewhere else (e.g. the command ignored `$PORT`), an orange badge appears
-on the process row. Auto ports do not participate in pre-start conflict checks —
-Harbor always scans for a free port at start time.
+`port = "auto"` is a parse error. Out-of-pool numbers stay legal (Vite's 5173,
+`[[port_claim]]` 5432, …) — they show under **Other claims**, not as Harbor
+convention leases. After ~5s Harbor checks that the process tree is listening
+on the declared port; if it bound somewhere else, an orange badge appears.
+A soft lint appears when `port` is set but the command mentions neither
+`$PORT` / `${PORT}` nor the decimal `N`.
+
+The **Port Allocation Convention** screen lists leased pool ports (Port,
+Project, Process, Status), the pool summary (`8100–8199 · 3 / 100 allocated`)
+and the next free port. Unused pool ports are omitted. Overlap banners and
+kill/copy actions still apply.
 
 ### Generating configs with the `harbor-toml` skill
 
@@ -123,15 +142,14 @@ Example prompts:
 |---|---|
 | New project | *"Add my `~/Projects/shop` repo to Harbor — discover the dev commands and write a `harbor.toml`."* |
 | Port collisions | *"I already have a Vite app on 5173 in Harbor. Write `harbor.toml` for this Next.js project without overlapping ports."* |
-| Auto ports | *"Use `port = \"auto\"` for the frontend; keep the API on a fixed port the Vite proxy can reach."* |
+| Pool ports | *"Register this server from Harbor's port pool; keep the API on the port the Vite proxy already uses."* |
 | Fix / review | *"My `harbor.toml` fails to parse — fix it to match Harbor's schema."* |
 | Chinese | *"接入 harbor，帮我写个 harbor 配置"* |
 
-The skill follows a fixed workflow: discover processes → collect claimed ports
-from other projects → choose **auto vs fixed** per process (APIs that another
-dev server proxies to should stay **fixed**; standalone servers can use
-`port = "auto"`) → draft TOML → validate → tell you to **Add Project…** in
-Harbor.
+The skill follows a fixed workflow: discover processes → read the Harbor pool
+and other projects' claimed ports → assign the **next free pool port** to each
+managed server that is not already hardcoded elsewhere → draft TOML → validate
+→ tell you to **Add Project…** in Harbor.
 
 Validate a draft yourself (no app required):
 
@@ -142,19 +160,19 @@ python3 ~/.agents/skills/harbor-toml/scripts/validate_harbor_toml.py \
 ```
 
 See the [harbor-toml repo](https://github.com/z1joey/harbor-toml) for the full
-skill schema (`open_process`, `port = "auto"`, Docker `port_claim`s, etc.).
+skill schema (`open_process`, pool `port = N`, Docker `port_claim`s, etc.).
 
 `OK` means parser rules pass and no static port overlap between the listed
-configs. `OVERLAP` flags two projects claiming the same fixed port; `ERROR`
-is a schema violation (e.g. `port_env` without `port = "auto"`, or `${port}`
-in `ready_url` on a fixed port). `WARN` means `port = "auto"` but the command
-does not reference `$PORT`.
+configs. `OVERLAP` flags two projects claiming the same port; `ERROR`
+is a schema violation (e.g. `port = "auto"`, or `port_env` / `${port}` without
+a declared `port`). `WARN` means `port` is set but the command does not
+reference `$PORT` or the decimal port number.
 
 **Skill output vs Harbor UI:** the skill only writes `harbor.toml` on disk —
 it does not register the folder. After saving, open Harbor → **Add Project…**
 → pick the project root. Edits hot-reload; Harbor does not rewrite your app's
 `vite.config`, `.env`, or Docker files. Production deploys are unaffected;
-`port = "auto"` and `$PORT` apply only to processes Harbor starts locally.
+`$PORT` injection applies only to processes Harbor starts locally.
 
 ## harbor-tui (terminal UI)
 
@@ -213,11 +231,11 @@ use the same confirmation semantics as the GUI.
 - `[[port_claim]]` ports are planning metadata: they never block starts (the
   holder is usually infrastructure like brew-services postgres or a
   Docker-published port, which can never look "managed"). They drive static
-  overlap warnings and the Ports Overview instead.
+  overlap warnings and the Port Allocation Convention instead.
 - Held by *another project's managed process* → same warning (this collision
   is invisible to plain lsof-vs-config checks). Two projects claiming the
   same port with nothing running is flagged as a static overlap — see the
-  **Ports Overview** sidebar item, and warnings when adding/importing a
+  **Port Convention** sidebar item, and warnings when adding/importing a
   project (which also suggest currently free ports).
 - Port snapshots come from `lsof -nP -iTCP -sTCP:LISTEN`, polled every ~2s on
   a background queue. Without elevated privileges lsof only shows your own
@@ -228,21 +246,23 @@ use the same confirmation semantics as the GUI.
 - `fixtures/sample-harbor.toml` — schema example.
 - `fixtures/selftest-project/` — register this folder to exercise everything:
   `logger` streams a line/second into its log pane, `server` is a python
-  http.server on port 8123 with a `ready_url`, `auto-server` uses
-  `port = "auto"` with `$PORT`, and `cwd-check` proves working directories
-  by writing `pwd` into `sub/harbor-cwd.txt`.
+  http.server on port 8123 with a `ready_url`, `auto-server` uses sticky pool
+  port **8100** with `$PORT` and `${port}` in `ready_url`, and `cwd-check`
+  proves working directories by writing `pwd` into `sub/harbor-cwd.txt`.
 
 ## Testing
 
 Core logic (config parsing, registry, ports, process supervision) lives in the
 local SwiftPM package `Core/` (`HarborCore`), shared by the GUI app and the
-upcoming TUI. The `HarborCoreTests` target (88 XCTests) covers the TOML parser
-(incl. `[[port_claim]]`), project registry store, lsof output parsing and
+upcoming TUI. The `HarborCoreTests` target covers the TOML parser (incl. `[[port_claim]]` and
+rejecting `port = "auto"`), the port-pool store (default 8100–8199, validation),
+project registry store, lsof output parsing and
 dedupe, the port planner (runtime conflicts — foreign and managed holders —,
-static overlaps, free-port suggestions), the SIGTERM→SIGKILL tree kill, log
+static overlaps, pool-port suggestions), convention vs other-claim rows, the
+SIGTERM→SIGKILL tree kill, log
 ring buffers, the process supervisor lifecycle (cwd/env, stop, restart,
-auto-restart, failed state, PID→process lookup), and the Procfile/package.json
-importers.
+auto-restart, failed state, PID→process lookup, sticky `PORT` inject), and the
+Procfile/package.json importers.
 
 ```bash
 cd Core && swift test

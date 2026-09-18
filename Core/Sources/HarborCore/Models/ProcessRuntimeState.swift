@@ -30,8 +30,6 @@ public struct ProcessStatus {
     public var ready: Bool?
     public var exitCode: Int32?
     public var restartAttempt: Int = 0
-    /// Port Harbor assigned for `port = "auto"`; cleared on stop.
-    public var assignedPort: Int?
     /// When the current run started; used for port-verification grace period.
     public var startedAt: Date?
 
@@ -42,14 +40,12 @@ public struct ProcessStatus {
                 ready: Bool? = nil,
                 exitCode: Int32? = nil,
                 restartAttempt: Int = 0,
-                assignedPort: Int? = nil,
                 startedAt: Date? = nil) {
         self.state = state
         self.pid = pid
         self.ready = ready
         self.exitCode = exitCode
         self.restartAttempt = restartAttempt
-        self.assignedPort = assignedPort
         self.startedAt = startedAt
     }
 }

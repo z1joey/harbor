@@ -17,6 +17,7 @@ final class TuiApp {
     let registry: ProjectRegistry
     let observer: PortObserver
     let supervisor: ProcessSupervisor
+    let portPoolStore: PortPoolStore
     let coordinator: HarborCoordinator
 
     // MARK: - UI state
@@ -71,11 +72,10 @@ final class TuiApp {
         registry = ProjectRegistry()
         observer = PortObserver()
         supervisor = ProcessSupervisor()
-        coordinator = HarborCoordinator(registry: registry, observer: observer, supervisor: supervisor)
+        portPoolStore = PortPoolStore()
+        coordinator = HarborCoordinator(registry: registry, observer: observer,
+                                        supervisor: supervisor, portPoolStore: portPoolStore)
 
-        supervisor.portAllocator = { [weak coordinator] _, _ in
-            coordinator?.allocateAutoPort()
-        }
         supervisor.onAutoRestartGiveUp = { [weak self] _, message in
             self?.showFlash(message, style: Style(fg: .red))
         }
@@ -510,7 +510,7 @@ final class TuiApp {
         if ports.subview == .listening {
             listener = visibleListeners[safe: ports.listeningSelection ?? -1]
         } else {
-            listener = overviewRows[safe: ports.overviewSelection ?? -1]?.listener
+            listener = allocationItems[safe: ports.overviewSelection ?? -1]?.listener
         }
         guard let listener else { return }
         if let holder = currentHolders[listener.pid] {
@@ -671,7 +671,7 @@ final class TuiApp {
     // MARK: - Drawing
 
     private var visibleListeners: [Listener] = []
-    private var overviewRows: [HarborCoordinator.OverviewRow] = []
+    private var allocationItems: [PortsPanel.AllocationItem] = []
 
     private func draw() {
         if let flash, Date() > flash.until { self.flash = nil }
@@ -776,7 +776,7 @@ final class TuiApp {
         if ports.subview == .listening {
             visibleListeners = listeners.filter { PortsPanel.matches($0, filter: ports.filter, mineOnly: ports.mineOnly) }
             listeningRowCount = visibleListeners.count
-            let header = "listening ports — [v] overview  [m] mine-only: \(ports.mineOnly ? "on" : "off")  [/] filter: \(ports.filter.isEmpty ? "-" : ports.filter)"
+            let header = "listening ports — [v] convention  [m] mine-only: \(ports.mineOnly ? "on" : "off")  [/] filter: \(ports.filter.isEmpty ? "-" : ports.filter)"
             screen.drawString(truncatedToWidth(header, headerRect.width), x: headerRect.x, y: headerRect.y, style: Style(fg: .brightBlack))
             var table = PortsPanel.listeningTable(listeners: listeners,
                                                   holdersByPID: holders,
@@ -787,15 +787,30 @@ final class TuiApp {
             ports.listeningSelection = table.selectedRow
             table.render(into: &screen, rect: tableRect)
         } else {
-            overviewRows = HarborCoordinator.overviewRows(projects: registry.projects,
-                                                          listeners: listeners,
-                                                          holdersByPID: holders,
-                                                          assignedPorts: coordinator.assignedPortsByKey())
-            overviewRowCount = overviewRows.count
+            let convention = HarborCoordinator.conventionRows(
+                pool: portPoolStore.pool,
+                projects: registry.projects,
+                listeners: listeners,
+                holdersByPID: holders
+            )
+            let other = HarborCoordinator.otherClaimRows(
+                pool: portPoolStore.pool,
+                projects: registry.projects,
+                listeners: listeners,
+                holdersByPID: holders
+            )
             let overlapPorts = Set(overlaps.map(\.port))
-            let header = "ports overview — [v] listening · ⚠ = static overlap"
+            let summary = coordinator.poolSummary()
+            let next = coordinator.nextFreePoolPort().map { "next free \($0)" } ?? "pool exhausted"
+            let header = "port convention — \(summary.label) · \(summary.allocated)/\(summary.capacity) allocated · \(next)  [v] listening · ⚠ = overlap"
             screen.drawString(truncatedToWidth(header, headerRect.width), x: headerRect.x, y: headerRect.y, style: Style(fg: .brightBlack))
-            var table = PortsPanel.overviewTable(rows: overviewRows, overlapPorts: overlapPorts, selected: ports.overviewSelection)
+            let built = PortsPanel.conventionTable(conventionRows: convention,
+                                                   otherRows: other,
+                                                   overlapPorts: overlapPorts,
+                                                   selected: ports.overviewSelection)
+            var table = built.table
+            allocationItems = built.items
+            overviewRowCount = allocationItems.count
             table.ensureVisible(visibleRows: max(1, tableRect.height))
             ports.overviewSelection = table.selectedRow
             table.render(into: &screen, rect: tableRect)
@@ -812,7 +827,7 @@ final class TuiApp {
         switch panel {
         case .projects: return "projects"
         case .logs: return "logs"
-        case .ports: return ports.subview == .listening ? "ports — listening" : "ports — overview"
+        case .ports: return ports.subview == .listening ? "ports — listening" : "ports — convention"
         }
     }
 
@@ -824,7 +839,7 @@ final class TuiApp {
             return "f follow · c clear · j/k scroll · PgUp/PgDn page"
         case .ports:
             return ports.subview == .listening
-                ? "v overview · m mine-only · / filter · x kill"
+                ? "v convention · m mine-only · / filter · x kill"
                 : "v listening · x kill holder"
         }
     }
