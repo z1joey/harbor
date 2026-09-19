@@ -30,6 +30,9 @@ struct MenuBarPopoverView: View {
             Divider()
             portsSection
 
+            Divider()
+            KeepAwakeRow(sleepGuard: appState.sleepGuard)
+
             // Confirmation dialogs (system alerts) cannot be presented from a
             // MenuBarExtra popover window on macOS 13 — their buttons never
             // fire. Pending confirmations render inline instead.
@@ -242,6 +245,34 @@ struct MenuBarPopoverView: View {
             }
         }
         .help(processStatusHelp(definition: definition, status: status, verification: verification))
+    }
+
+    // MARK: - Keep awake
+
+    /// "Keep Awake" switch: blocks idle system sleep while on, so long tasks
+    /// can run to completion. Lives in its own row-struct because the switch
+    /// state lives on SleepGuard, not on AppState.
+    private struct KeepAwakeRow: View {
+        @ObservedObject var sleepGuard: SleepGuard
+
+        var body: some View {
+            HStack(spacing: 6) {
+                Image(systemName: sleepGuard.isEnabled ? "cup.and.saucer.fill" : "cup.and.saucer")
+                    .foregroundStyle(sleepGuard.isEnabled ? Color.orange : Color.secondary)
+                Text("Keep Awake")
+                    .font(.caption)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { sleepGuard.isEnabled },
+                    set: { sleepGuard.setEnabled($0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .help("Prevent idle sleep while long tasks run — the display may still sleep. "
+                      + "Released automatically when Harbor quits.")
+            }
+        }
     }
 
     // MARK: - Ports
