@@ -1,14 +1,19 @@
 import XCTest
 @testable import HarborCore
 
+/// The registry is read-only: `~/.harbor/projects.json` is owned by the
+/// harbor-toml skill (or hand edits); Harbor only reads and watches it.
 @MainActor
 final class ProjectRegistryTests: XCTestCase {
+    private var storeDirectory: URL!
     private var storeURL: URL!
     private var projectRoot: URL!
 
     override func setUp() async throws {
-        storeURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("harbor-registry-\(UUID().uuidString).json")
+        storeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("harbor-registry-\(UUID().uuidString)", isDirectory: true)
+        storeURL = storeDirectory.appendingPathComponent("projects.json")
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
         projectRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("harbor-registry-project-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
@@ -23,26 +28,30 @@ final class ProjectRegistryTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: storeURL)
+        try? FileManager.default.removeItem(at: storeDirectory)
         try? FileManager.default.removeItem(at: projectRoot)
     }
 
-    func testAddPersistsRootPath() throws {
-        let registry = ProjectRegistry(storeURL: storeURL)
-        let result = registry.add(root: projectRoot, createTemplateIfMissing: false)
-        guard case .success(let project) = result else {
-            return XCTFail("add failed: \(result)")
-        }
-        XCTAssertEqual(project.name, "registry-fixture")
-        XCTAssertEqual(project.processes.count, 1)
+    /// Writes the store the way the skill does: tmp file + rename.
+    private func writeStore(_ paths: [String]) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(paths).write(to: storeURL, options: .atomic)
+    }
 
-        let stored = try JSONDecoder().decode([String].self, from: Data(contentsOf: storeURL))
-        XCTAssertEqual(stored, [projectRoot.path])
+    func testLoadReadsRegisteredRoots() throws {
+        try writeStore([projectRoot.path])
+
+        let registry = ProjectRegistry(storeURL: storeURL)
+        let project = try XCTUnwrap(registry.projects.first)
+        XCTAssertEqual(project.id, projectRoot.path)
+        XCTAssertEqual(project.name, "registry-fixture")
+        XCTAssertEqual(project.processes.first?.name, "api")
     }
 
     func testRelaunchRestoresProjects() throws {
-        let first = ProjectRegistry(storeURL: storeURL)
-        _ = first.add(root: projectRoot, createTemplateIfMissing: false)
+        try writeStore([projectRoot.path])
+        _ = ProjectRegistry(storeURL: storeURL)
 
         // A fresh instance (simulated relaunch) reads the same store.
         let second = ProjectRegistry(storeURL: storeURL)
@@ -51,62 +60,84 @@ final class ProjectRegistryTests: XCTestCase {
         XCTAssertEqual(second.projects.first?.processes.first?.name, "api")
     }
 
-    func testRemoveRewritesStoreFromInMemoryProjects() throws {
-        let legacyPath = projectRoot.path + "/"
-        try JSONEncoder().encode([legacyPath]).write(to: storeURL)
+    func testLoadDoesNotRewriteStore() throws {
+        try writeStore([projectRoot.path])
+        let before = try Data(contentsOf: storeURL)
+
+        _ = ProjectRegistry(storeURL: storeURL)
+
+        let after = try Data(contentsOf: storeURL)
+        XCTAssertEqual(before, after, "the registry must never rewrite the skill-owned store")
+    }
+
+    func testLoadNormalizesLegacyTrailingSlashPathsInMemory() throws {
+        try writeStore([projectRoot.path + "/"])
 
         let registry = ProjectRegistry(storeURL: storeURL)
-        XCTAssertEqual(registry.projects.count, 1)
-        let project = try XCTUnwrap(registry.projects.first)
+        XCTAssertEqual(registry.projects.first?.id, projectRoot.path)
+    }
 
-        registry.remove(projectID: project.id)
+    func testMissingStoreMeansNoProjects() throws {
+        let registry = ProjectRegistry(storeURL: storeURL)
         XCTAssertTrue(registry.projects.isEmpty)
-
-        let stored = try JSONDecoder().decode([String].self, from: Data(contentsOf: storeURL))
-        XCTAssertTrue(stored.isEmpty)
     }
 
-    func testRemoveUnregistersButKeepsFiles() throws {
-        let registry = ProjectRegistry(storeURL: storeURL)
-        _ = registry.add(root: projectRoot, createTemplateIfMissing: false)
-
-        registry.remove(projectID: projectRoot.path)
-        XCTAssertTrue(registry.projects.isEmpty)
-        let stored = try JSONDecoder().decode([String].self, from: Data(contentsOf: storeURL))
-        XCTAssertTrue(stored.isEmpty)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent("harbor.toml").path))
-    }
-
-    func testAddWithoutConfigRequiresTemplateOptIn() throws {
-        let emptyRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("harbor-empty-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: emptyRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: emptyRoot) }
-
-        let registry = ProjectRegistry(storeURL: storeURL)
-        guard case .failure(let error) = registry.add(root: emptyRoot, createTemplateIfMissing: false) else {
-            return XCTFail("expected failure without config")
-        }
-        XCTAssertTrue(error.localizedDescription.contains("harbor.toml"), "unexpected: \(error.localizedDescription)")
-
-        guard case .success = registry.add(root: emptyRoot, createTemplateIfMissing: true) else {
-            return XCTFail("expected template creation to allow add")
-        }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: emptyRoot.appendingPathComponent("harbor.toml").path))
-    }
-
-    func testInvalidConfigRegistersWithVisibleError() throws {
+    func testInvalidConfigListsProjectWithVisibleError() throws {
         let brokenRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("harbor-broken-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: brokenRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: brokenRoot) }
         try "name = [broken".write(to: brokenRoot.appendingPathComponent("harbor.toml"), atomically: true, encoding: .utf8)
+        try writeStore([brokenRoot.path])
 
         let registry = ProjectRegistry(storeURL: storeURL)
-        guard case .success(let project) = registry.add(root: brokenRoot, createTemplateIfMissing: false) else {
-            return XCTFail("project with broken config should still register with error state")
-        }
+        let project = try XCTUnwrap(registry.projects.first)
         XCTAssertNotNil(project.configError)
         XCTAssertTrue(project.processes.isEmpty)
+    }
+
+    func testRootWithoutConfigListsProjectWithError() throws {
+        let emptyRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("harbor-empty-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: emptyRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: emptyRoot) }
+        try writeStore([emptyRoot.path])
+
+        let registry = ProjectRegistry(storeURL: storeURL)
+        let project = try XCTUnwrap(registry.projects.first)
+        XCTAssertNotNil(project.configError)
+        XCTAssertTrue(project.processes.isEmpty)
+    }
+
+    /// The skill may register projects while Harbor runs: the store is
+    /// replaced atomically and the directory watcher must reload it live.
+    func testWatcherPicksUpSkillStoreRewrite() throws {
+        try writeStore([projectRoot.path])
+        let registry = ProjectRegistry(storeURL: storeURL)
+        XCTAssertEqual(registry.projects.count, 1)
+
+        let otherRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("harbor-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: otherRoot) }
+        try """
+        name = "late-arrival"
+
+        [[process]]
+        name = "web"
+        command = "sleep 1"
+        port = 8002
+        """.write(to: otherRoot.appendingPathComponent("harbor.toml"), atomically: true, encoding: .utf8)
+
+        // Rewrite the store the way the skill does — atomic replace.
+        try writeStore([projectRoot.path, otherRoot.path])
+
+        // The watcher debounces 0.4s; pump the run loop until it lands.
+        let deadline = Date().addingTimeInterval(5)
+        while registry.projects.count < 2 && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertEqual(registry.projects.count, 2)
+        XCTAssertEqual(registry.projects.last?.name, "late-arrival")
     }
 }

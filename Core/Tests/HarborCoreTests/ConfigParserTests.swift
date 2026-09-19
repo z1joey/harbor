@@ -120,13 +120,6 @@ final class ConfigParserTests: XCTestCase {
         """))
     }
 
-    func testTemplateConfigRoundTrips() throws {
-        let template = HarborConfigParser.templateText(projectName: "fresh project \"quoted\"")
-        let parsed = try HarborConfigParser.parse(text: template)
-        XCTAssertEqual(parsed.processes.count, 1)
-        XCTAssertEqual(parsed.processes[0].name, "dev")
-    }
-
     func testProjectWithoutProcessesIsEmptyNotError() throws {
         let parsed = try HarborConfigParser.parse(text: "name = \"empty\"")
         XCTAssertEqual(parsed.name, "empty")
@@ -216,17 +209,6 @@ final class ConfigParserTests: XCTestCase {
         port = 5432
         process = "database"
         """))
-    }
-
-    func testTemplateParsesWithNoClaimsAndSuggestedPortIsCommentedOut() throws {
-        let template = HarborConfigParser.templateText(projectName: "fresh", suggestedPort: 8123)
-        XCTAssertTrue(template.contains("port = 8123"))
-        XCTAssertFalse(template.contains("port = \"auto\""))
-        XCTAssertTrue(template.contains("[[port_claim]]"))
-        let parsed = try HarborConfigParser.parse(text: template)
-        XCTAssertEqual(parsed.processes.count, 1)
-        XCTAssertTrue(parsed.portClaims.isEmpty)
-        XCTAssertNil(parsed.processes[0].port)
     }
 
     // MARK: - declared port, port_env, ${port}

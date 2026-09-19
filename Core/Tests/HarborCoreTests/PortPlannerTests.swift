@@ -138,24 +138,6 @@ final class PortPlannerTests: XCTestCase {
         XCTAssertTrue(PortPlanner.staticOverlaps(projects: [alpha]).isEmpty)
     }
 
-    // MARK: - Suggestions
-
-    func testSuggestFreePortsSkipsTakenPorts() {
-        let suggestions = PortPlanner.suggestFreePorts(count: 3, from: 8000,
-                                                       taken: [8000, 8001, 5432])
-        XCTAssertEqual(suggestions, [8002, 8003, 8004])
-    }
-
-    func testSuggestFreePortsStartsAtBaseEvenIfFree() {
-        let suggestions = PortPlanner.suggestFreePorts(count: 2, from: 9000, taken: [])
-        XCTAssertEqual(suggestions, [9000, 9001])
-    }
-
-    func testSuggestFreePortsStopsAtPortCeiling() {
-        let suggestions = PortPlanner.suggestFreePorts(count: 3, from: 65534, taken: [])
-        XCTAssertEqual(suggestions, [65534, 65535])
-    }
-
     // MARK: - Pool port suggestions
 
     func testAllocatePortSkipsTakenPorts() {
@@ -187,12 +169,6 @@ final class PortPlannerTests: XCTestCase {
         taken.remove(8200)
         XCTAssertNil(PortPlanner.allocatePort(taken: taken, isBindable: { _ in true }),
                      "8200 is outside the default 8100–8199 pool")
-    }
-
-    func testSuggestFreePortsInPoolSkipsTaken() {
-        let pool = PortPool(ranges: [PortRange(from: 8100, to: 8199)])
-        XCTAssertEqual(PortPlanner.suggestFreePorts(count: 3, pool: pool, taken: [8100, 8101]),
-                       [8102, 8103, 8104])
     }
 
     func testIsBindableRejectsOccupiedPort() throws {

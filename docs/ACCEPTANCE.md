@@ -83,6 +83,34 @@ steps at the bottom.
 - [ ] AC6.6 Port Allocation Convention GUI/TUI shows pool summary, next free, Edit pool, leased rows and other claims; project detail shows `:N`, mismatch badge, and port-not-in-command lint. (Manual step M12.)
 - [ ] AC6.7 `fixtures/selftest-project` `auto-server` starts on sticky port 8100 with `$PORT` and "Open in Browser" uses `http://127.0.0.1:8100/`. (Manual step M12.)
 
+## Task 7 — `~/.harbor` home + skill-side registration (v1.2.0)
+
+The app no longer registers projects: the harbor-pilot skill writes
+`harbor.toml` and appends roots to `~/.harbor/projects.json`; both frontends
+read + watch. Add Project / template creation / Procfile-package.json
+import / Remove Project / TUI `:add` & `:remove` were removed by design.
+
+- [x] AC7.1 Default store paths point at `~/.harbor` (`projects.json`,
+      `port-pool.json`). *(service tests: HarborStoreLocationTests)*
+- [x] AC7.2 Startup migrates legacy `~/Library/Application Support/Harbor`
+      stores into `~/.harbor`; existing `~/.harbor` files win; lock sidecars
+      are cleaned up; an emptied legacy dir is removed. *(service tests:
+      HarborStoreLocationTests)*
+- [x] AC7.3 The registry never rewrites `projects.json`; an atomic rewrite
+      by the skill (tmp + rename) is picked up live via the `~/.harbor`
+      directory watcher. *(service tests: ProjectRegistryTests)*
+- [x] AC7.4 A registered root with missing or broken config still lists the
+      project, with a visible error banner and zero processes. *(service
+      tests: ProjectRegistryTests)*
+- [x] AC7.5 Skill helpers read/write `~/.harbor` (legacy path honored while
+      only it exists); `register_project.py` registers idempotently and
+      rejects relative/traversal paths. *(python tests: test_port_pool.py —
+      28 checks)*
+- [ ] AC7.6 With the app running, `register_project.py <fixture>` makes the
+      project appear without restart; relaunch keeps it. (Manual step M13.)
+- [ ] AC7.7 GUI shows skill-hint empty states (sidebar, popover, convention)
+      and the TUI `:` bar accepts only `refresh`/`q`. (Manual step M13.)
+
 ## Cross-cutting
 
 - [x] ACX.1 No force-unwrap crashes in happy path or empty states. (Repo-wide grep: no `!` force unwraps / `try!` / `as!` in `App/`; empty states handled in every list view.)
@@ -111,8 +139,9 @@ Launch a freshly built app:
 - **M4 (AC1.5/1.6):** In the main window's Listening Ports table, select a row
   → Copy port / Copy PID → paste somewhere to verify. Type into the filter
   field (e.g. "8765" or "py") → list narrows; toggle "Mine only".
-- **M5 (AC3.5/3.7):** Register `fixtures/selftest-project` (Add Project… →
-  choose the folder). Start All → four status dots turn green and the
+- **M5 (AC3.5/3.7):** Register `fixtures/selftest-project` (v1.2.0+: `python3
+  ~/.agents/skills/harbor-pilot/scripts/register_project.py
+  ~/Projects/harbor/fixtures/selftest-project`). Start All → four status dots turn green and the
   menubar icon shows "4"; Stop All → dots gray, count gone.
 - **M6 (AC3.6):** Start `python3 -m http.server 8123` externally, then press
   Start on the `server` process (declared port 8123) → a conflict dialog
@@ -122,9 +151,14 @@ Launch a freshly built app:
   in the log pane opens `http://127.0.0.1:8123/`. Add `open_process = "server"`
   (or `open_url`) to a project → menubar safari icon and detail "Open in Browser"
   open the same URL.
-- **M8 (AC4.4):** Create a folder with a `Procfile` (`web: python3 -m
-  http.server 8081`) → Add Project → "Import from Procfile…" → editable draft
-  → "Save harbor.toml & Add" → project appears with a `web` process.
+- **M8 (AC4.4):** *Removed in v1.2.0 — Procfile/package.json import moved to
+  the harbor-pilot skill (it drafts the TOML itself).*
+- **M13 (AC7.6/7.7):** With Harbor running, run
+  `python3 ~/.agents/skills/harbor-pilot/scripts/register_project.py
+  ~/Projects/harbor/fixtures/selftest-project` → the project appears within
+  ~1s. Inspect `~/.harbor/projects.json`; remove the entry → the project
+  vanishes live. Empty states (sidebar, popover) mention the skill; TUI `:`
+  bar rejects `add` with a hint.
 - **M9 (AC4.5):** Toolbar gear → toggle "Launch at Login" → check
   System Settings ▸ General ▸ Login Items; toggle again to remove.
 - **M10 (AC4.6):** Add `auto_restart = true` to a process, start it, `kill -9`
@@ -176,12 +210,10 @@ the TUI-specific manual checks; run `harbor-tui` in Terminal.app/iTerm with
 - [ ] TUI-T8 `v` switches to Port Allocation Convention: pool summary + next
       free, leased pool-port rows, other-claims section, free / managed /
       external statuses, holder column; static-overlap rows carry ⚠.
-- [ ] TUI-T9 `:add <path>` on a folder with config shows the overlap review
-      when it collides (add anyway / cancel); on a folder without config it
-      offers template + numbered Procfile/package.json drafts (free-port hint).
-- [ ] TUI-T10 `:remove` (with confirmation) unregisters; the running GUI
-      reflects the change without restart and vice versa (shared registry,
-      flock + store watch).
+- [ ] TUI-T9 *Removed in v1.2.0 — registration lives in `~/.harbor`, written
+      by the harbor-pilot skill; the TUI is a read + supervise frontend.*
+- [ ] TUI-T10 *Removed in v1.2.0 — unregister by editing
+      `~/.harbor/projects.json`; both frontends hot-reload it.*
 - [ ] TUI-T11 `q` with running processes → quit confirmation; confirming
       stops all TUI-managed trees; terminal is fully restored (cursor, main
       screen buffer) after every exit path, including external SIGTERM.

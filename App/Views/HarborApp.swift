@@ -29,9 +29,6 @@ struct HarborApp: App {
                 .environmentObject(appState)
         }
         .defaultSize(width: 1020, height: 660)
-        .commands {
-            HarborCommands(appState: appState)
-        }
     }
 }
 

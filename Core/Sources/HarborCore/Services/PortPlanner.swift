@@ -154,21 +154,6 @@ public enum PortPlanner {
             .sorted { $0.port < $1.port }
     }
 
-    // MARK: - Suggestions
-
-    /// `count` port numbers starting from `base` that nothing claims or listens on.
-    public static func suggestFreePorts(count: Int, from base: Int, taken: Set<Int>) -> [Int] {
-        var suggestions: [Int] = []
-        var candidate = max(base, 1)
-        while suggestions.count < count, candidate <= 65535 {
-            if !taken.contains(candidate) {
-                suggestions.append(candidate)
-            }
-            candidate += 1
-        }
-        return suggestions
-    }
-
     // MARK: - Pool suggestions
 
     /// First port in `pool` not in `taken` and passing `isBindable`.
@@ -180,16 +165,6 @@ public enum PortPlanner {
             return port
         }
         return nil
-    }
-
-    /// `count` free ports from `pool`, skipping `taken` (no bind probe).
-    public static func suggestFreePorts(count: Int, pool: PortPool, taken: Set<Int>) -> [Int] {
-        var suggestions: [Int] = []
-        for port in pool.ports where !taken.contains(port) {
-            suggestions.append(port)
-            if suggestions.count == count { break }
-        }
-        return suggestions
     }
 
     /// Returns true when `port` can be bound on 0.0.0.0 (catches stale lsof gaps).

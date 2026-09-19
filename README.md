@@ -6,6 +6,12 @@ servers (`harbor.toml`) with start/stop/restart, live logs, port-conflict
 warnings, health probes, and auto-restart. Ships in two forms that share one
 core: a SwiftUI menubar app and a terminal UI (`harbor-tui`).
 
+State lives in a hidden `~/.harbor` folder — the port pool plus the project
+registry (the Port Allocation Convention). The companion **harbor-pilot**
+skill owns registration: it writes `harbor.toml` and appends project roots to
+`~/.harbor/projects.json`; both frontends only read (and watch) that file, so
+registration works whether or not Harbor is running.
+
 SwiftUI + XcodeGen, macOS 13+, menubar-first (`LSUIElement`, no Dock icon by
 default), ad-hoc signing, no background daemon — everything runs in-process.
 
@@ -46,14 +52,22 @@ list with kill, and "Open Harbor…" for the full main window (sidebar:
 
 ## Registering a project
 
-Each project is a folder containing `harbor.toml` (or `.harbor.toml`). Use
-**Project → Add Project…** (⌘N) in the menu bar: pick a folder; if it has no
-config, Harbor offers to create a template, or to import a draft from a
-`Procfile` / `package.json` (which you review before it's written). The list
-of registered project roots lives at
-`~/Library/Application Support/Harbor/projects.json`; removing a project
-unregisters it and deletes nothing on disk. Config files are watched — edits
-reload automatically.
+Harbor has no "Add Project" flow. Each project is a folder containing
+`harbor.toml` (or `.harbor.toml`), drafted and **registered by the
+harbor-pilot skill**: it discovers the dev commands, plans ports against the
+pool and your other projects, writes the TOML, then appends the project root
+to `~/.harbor/projects.json`. Both frontends watch that file — a registered
+project appears within ~1s while Harbor runs, or at next launch.
+
+```
+~/.harbor/projects.json    # JSON array of absolute project roots (skill-written)
+~/.harbor/port-pool.json   # { "ranges": [{ "from": 8100, "to": 8199 }] }
+```
+
+Unregistering = removing the path from that JSON file (by hand or via the
+skill); nothing on disk is deleted. Config files are watched — edits reload
+automatically. First launch migrates the pre-1.2 stores from
+`~/Library/Application Support/Harbor/` into `~/.harbor` (new files win).
 
 ### Config schema (`harbor.toml`)
 
@@ -88,16 +102,16 @@ variable (override the name with `port_env`) so commands can keep using `$PORT`.
 `${port}` in `ready_url` is substituted with `N`.
 
 The **port pool** is an app setting — which ports Harbor may hand out when a
-project is registered. It lives next to the project list:
+project is registered. It lives at:
 
-`~/Library/Application Support/Harbor/port-pool.json`
+`~/.harbor/port-pool.json`
 
 ```json
 { "ranges": [{ "from": 8100, "to": 8199 }] }
 ```
 
 Missing file → default **8100–8199**. Edit the ranges from the main window's
-**Port Convention** sidebar (**Edit pool…**). The companion harbor-toml skill
+**Port Convention** sidebar (**Edit pool…**). The companion harbor-pilot skill
 reads the same file and writes the next free pool port into `harbor.toml`.
 
 ```toml
@@ -120,21 +134,21 @@ Project, Process, Status), the pool summary (`8100–8199 · 3 / 100 allocated`)
 and the next free port. Unused pool ports are omitted. Overlap banners and
 kill/copy actions still apply.
 
-### Generating configs with the `harbor-toml` skill
+### Generating configs with the `harbor-pilot` skill
 
 Harbor has a companion **Cursor agent skill**
-[**harbor-toml**](https://github.com/z1joey/harbor-toml) that drafts
+[**harbor-pilot**](https://github.com/z1joey/harbor-pilot) that drafts
 `harbor.toml` files from your repo layout, plans ports against other registered
 projects, and validates the result against Harbor's parser. Install once:
 
 ```bash
 mkdir -p ~/.agents/skills
-git clone https://github.com/z1joey/harbor-toml.git ~/.agents/skills/harbor-toml
+git clone https://github.com/z1joey/harbor-pilot.git ~/.agents/skills/harbor-pilot
 ```
 
 **In Cursor chat**, attach or invoke the skill and ask in plain language. The
 agent reads `package.json`, `compose.yaml`, framework configs, and
-`~/Library/Application Support/Harbor/projects.json` before writing anything.
+`~/.harbor/projects.json` before writing anything.
 
 Example prompts:
 
@@ -147,19 +161,20 @@ Example prompts:
 | Chinese | *"接入 harbor，帮我写个 harbor 配置"* |
 
 The skill follows a fixed workflow: discover processes → read the Harbor pool
-and other projects' claimed ports → assign the **next free pool port** to each
-managed server that is not already hardcoded elsewhere → draft TOML → validate
-→ tell you to **Add Project…** in Harbor.
+(`~/.harbor/port-pool.json`) and other projects' claimed ports → assign the
+**next free pool port** to each managed server that is not already hardcoded
+elsewhere → draft TOML → validate → **register** the project
+(`register_project.py` appends the root to `~/.harbor/projects.json`).
 
 Validate a draft yourself (no app required):
 
 ```bash
-python3 ~/.agents/skills/harbor-toml/scripts/validate_harbor_toml.py \
+python3 ~/.agents/skills/harbor-pilot/scripts/validate_harbor_toml.py \
   ~/Projects/shop/harbor.toml \
   ~/Projects/other-app/harbor.toml
 ```
 
-See the [harbor-toml repo](https://github.com/z1joey/harbor-toml) for the full
+See the [harbor-pilot repo](https://github.com/z1joey/harbor-pilot) for the full
 skill schema (`open_process`, pool `port = N`, Docker `port_claim`s, etc.).
 
 `OK` means parser rules pass and no static port overlap between the listed
@@ -168,11 +183,12 @@ is a schema violation (e.g. `port = "auto"`, or `port_env` / `${port}` without
 a declared `port`). `WARN` means `port` is set but the command does not
 reference `$PORT` or the decimal port number.
 
-**Skill output vs Harbor UI:** the skill only writes `harbor.toml` on disk —
-it does not register the folder. After saving, open Harbor → **Add Project…**
-→ pick the project root. Edits hot-reload; Harbor does not rewrite your app's
-`vite.config`, `.env`, or Docker files. Production deploys are unaffected;
-`$PORT` injection applies only to processes Harbor starts locally.
+**Skill output vs Harbor UI:** the skill writes `harbor.toml` in the project
+and registers the root in `~/.harbor/projects.json`; any running Harbor
+frontend picks the project up within ~1s. Edits hot-reload; Harbor does not
+rewrite your app's `vite.config`, `.env`, or Docker files. Production deploys
+are unaffected; `$PORT` injection applies only to processes Harbor starts
+locally.
 
 ## harbor-tui (terminal UI)
 
@@ -205,13 +221,12 @@ Keys:
 | `⏎` / `l` | Open the selected process's logs |
 | `f` / `c` | Logs: toggle follow / clear |
 | `v` / `m` / `/` | Ports: toggle overview, mine-only, filter |
-| `:` | Command bar — `add <path>`, `remove [name]`, `refresh`, `q` |
+| `:` | Command bar — `refresh`, `q` (registration lives in `~/.harbor`, via the skill) |
 | `q` / `Ctrl+C` | Quit (stops managed trees; confirms when something is running) |
 
-`:add` handles folders without a `harbor.toml` too: it offers a template (with
-a free-port suggestion baked in) or numbered drafts imported from a `Procfile`
-/ `package.json`. Port-conflict decisions (free port & start, start anyway)
-use the same confirmation semantics as the GUI.
+Ports panel and all start/stop/confirm semantics match the GUI; the shared
+registry means the TUI and the menubar app see the same projects, each
+supervising only the processes it spawned itself.
 
 ## Ownership & safety rules
 
@@ -235,8 +250,8 @@ use the same confirmation semantics as the GUI.
 - Held by *another project's managed process* → same warning (this collision
   is invisible to plain lsof-vs-config checks). Two projects claiming the
   same port with nothing running is flagged as a static overlap — see the
-  **Port Convention** sidebar item, and warnings when adding/importing a
-  project (which also suggest currently free ports).
+  **Port Convention** sidebar item and start-time warnings (the harbor-pilot
+  skill plans ports to avoid this when registering).
 - Port snapshots come from `lsof -nP -iTCP -sTCP:LISTEN`, polled every ~2s on
   a background queue. Without elevated privileges lsof only shows your own
   listeners — that's an OS constraint, not a bug.
@@ -244,7 +259,9 @@ use the same confirmation semantics as the GUI.
 ## Fixtures
 
 - `fixtures/sample-harbor.toml` — schema example.
-- `fixtures/selftest-project/` — register this folder to exercise everything:
+- `fixtures/selftest-project/` — register this folder to exercise everything
+  (`python3 ~/.agents/skills/harbor-pilot/scripts/register_project.py
+  <abs-path-to>/fixtures/selftest-project`):
   `logger` streams a line/second into its log pane, `server` is a python
   http.server on port 8123 with a `ready_url`, `auto-server` uses sticky pool
   port **8100** with `$PORT` and `${port}` in `ready_url`, and `cwd-check`
@@ -254,15 +271,16 @@ use the same confirmation semantics as the GUI.
 
 Core logic (config parsing, registry, ports, process supervision) lives in the
 local SwiftPM package `Core/` (`HarborCore`), shared by the GUI app and the
-upcoming TUI. The `HarborCoreTests` target covers the TOML parser (incl. `[[port_claim]]` and
+TUI. The `HarborCoreTests` target covers the TOML parser (incl. `[[port_claim]]` and
 rejecting `port = "auto"`), the port-pool store (default 8100–8199, validation),
-project registry store, lsof output parsing and
-dedupe, the port planner (runtime conflicts — foreign and managed holders —,
-static overlaps, pool-port suggestions), convention vs other-claim rows, the
-SIGTERM→SIGKILL tree kill, log
-ring buffers, the process supervisor lifecycle (cwd/env, stop, restart,
-auto-restart, failed state, PID→process lookup, sticky `PORT` inject), and the
-Procfile/package.json importers.
+the read-only project registry (loads `~/.harbor/projects.json`, never
+rewrites it, picks up skill rewrites via the directory watcher, lists broken
+configs with a visible error), the legacy→`~/.harbor` store migration, lsof
+output parsing and dedupe, the port planner (runtime conflicts — foreign and
+managed holders —, static overlaps, pool-port allocation), convention vs
+other-claim rows, the SIGTERM→SIGKILL tree kill, log
+ring buffers, and the process supervisor lifecycle (cwd/env, stop, restart,
+auto-restart, failed state, PID→process lookup, sticky `PORT` inject).
 
 ```bash
 cd Core && swift test

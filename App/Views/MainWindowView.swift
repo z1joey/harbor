@@ -23,10 +23,6 @@ struct MainWindowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar { toolbarContent }
-        .sheet(isPresented: addProjectSheetBinding) {
-            AddProjectSheet()
-                .environmentObject(appState)
-        }
         .navigationTitle("Harbor")
         .onAppear {
             appState.isMainWindowOpen = true
@@ -108,13 +104,6 @@ struct MainWindowView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-    }
-
-    private var addProjectSheetBinding: Binding<Bool> {
-        Binding(
-            get: { appState.showAddProjectSheet },
-            set: { appState.showAddProjectSheet = $0 }
-        )
     }
 
     private var launchAtLoginBinding: Binding<Bool> {

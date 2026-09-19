@@ -1,8 +1,8 @@
 import Foundation
 import Darwin
 
-/// Loads/saves Harbor's port pool (`~/Library/Application Support/Harbor/port-pool.json`).
-/// Shared by the GUI and TUI; the harbor-toml skill reads the same file.
+/// Loads/saves Harbor's port pool (`~/.harbor/port-pool.json`). Shared by the
+/// GUI and TUI; the harbor-pilot skill reads the same file.
 ///
 /// Missing or unreadable files resolve to `PortPool.default` (8100–8199)
 /// without writing, so a fresh install and the skill agree without a seed file.
@@ -18,10 +18,7 @@ public final class PortPoolStore: ObservableObject {
         if let storeURL {
             self.storeURL = storeURL
         } else {
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Harbor", isDirectory: true)
-            try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-            self.storeURL = base.appendingPathComponent("port-pool.json")
+            self.storeURL = HarborStoreLocation.portPoolURL
         }
         load()
     }
@@ -71,14 +68,19 @@ public final class PortPoolStore: ObservableObject {
         return body()
     }
 
+    /// Watches the directory holding the store rather than the store file:
+    /// `~/.harbor/port-pool.json` may not exist yet on a fresh install, and
+    /// writers replace the file via atomic rename — both surface as directory
+    /// events. The load diff-guard makes events from sibling files no-ops.
     private func restartStoreWatcher() {
         storeWatcher?.cancel()
         storeWatcher = nil
-        let fd = open(storeURL.path, O_EVTONLY)
+        let directory = storeURL.deletingLastPathComponent()
+        let fd = open(directory.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: [.write, .extend, .delete, .rename],
+            eventMask: [.write, .delete, .rename],
             queue: DispatchQueue.global(qos: .utility)
         )
         source.setEventHandler { [weak self] in

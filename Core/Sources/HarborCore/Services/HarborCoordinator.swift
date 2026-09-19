@@ -91,11 +91,6 @@ public final class HarborCoordinator {
         PortPlanner.allocatePort(taken: takenPorts(), pool: portPoolStore.pool, isBindable: PortPlanner.isBindable)
     }
 
-    /// Port numbers free in the configured pool (no bind probe).
-    public func suggestedFreePorts(count: Int = 5) -> [Int] {
-        PortPlanner.suggestFreePorts(count: count, pool: portPoolStore.pool, taken: takenPorts())
-    }
-
     public var pool: PortPool { portPoolStore.pool }
 
     public func poolSummary(projects: [Project]? = nil) -> (label: String, allocated: Int, capacity: Int) {

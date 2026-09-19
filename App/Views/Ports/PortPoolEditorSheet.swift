@@ -24,7 +24,7 @@ struct PortPoolEditorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Edit port pool").font(.headline)
-            Text("Harbor and the harbor-toml skill hand out sticky process ports from these ranges. Default is 8100–8199.")
+            Text("Harbor and the harbor-pilot skill hand out sticky process ports from these ranges. Default is 8100–8199.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach($drafts) { $draft in
