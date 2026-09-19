@@ -1,6 +1,12 @@
 .DS_Store
 .mimosa/
 
+# Local AI-assistant working artifacts (session plans, design notes,
+# acceptance checklists) — kept local, never committed.
+.zcode/
+.cursor/plans/
+docs/
+
 # Xcode / Swift
 DerivedData/
 xcuserdata/

@@ -334,9 +334,6 @@ xcodebuild build -project Harbor.xcodeproj -scheme Harbor \
 - TOML parsing uses [TOMLKit](https://github.com/LebJe/TOMLKit) (SPM, declared
   in `Core/Package.swift`).
 - Logs are in-memory ring buffers (~2000 lines per process).
-- Manual acceptance checklists: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)
-  (service-level ACs are also covered by the unit-test target; that file
-  records what was verified and which UI checks remain manual).
 
 ## Out of scope for v1
 
