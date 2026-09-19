@@ -27,11 +27,10 @@ struct MenuBarPopoverView: View {
             Divider()
             projectsSection
 
-            Divider()
-            portsSection
+            KeepAwakeRow(sleepGuard: appState.sleepGuard)
 
             Divider()
-            KeepAwakeRow(sleepGuard: appState.sleepGuard)
+            portsSection
 
             // Confirmation dialogs (system alerts) cannot be presented from a
             // MenuBarExtra popover window on macOS 13 — their buttons never
