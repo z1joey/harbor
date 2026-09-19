@@ -66,6 +66,7 @@ final class TuiApp {
 
     init() throws {
         HarborStoreLocation.migrateLegacyStoresIfNeeded()
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded()
         terminal = try TerminalController()
         registry = ProjectRegistry()
         observer = PortObserver()

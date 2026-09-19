@@ -34,7 +34,7 @@ struct ProjectDetailView: View {
                     .font(.title2)
                     .fontWeight(.semibold)
                 WrappingDetailText(
-                    text: project.root.path,
+                    text: project.root?.path ?? "Unknown location — fix the config error below",
                     font: .caption,
                     foreground: .secondary
                 )
@@ -56,14 +56,8 @@ struct ProjectDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Config error").font(.callout).fontWeight(.semibold)
                 Text(text).font(.caption)
-                if let configURL = project.configURL() {
-                    Button("Fix Config…") {
-                        NSWorkspace.shared.open(configURL)
-                    }
-                } else {
-                    Text("No harbor.toml found. Ask the harbor-pilot skill to draft one — refocus this window to reload.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                Button("Fix Config…") {
+                    NSWorkspace.shared.open(project.configURL)
                 }
             }
             Spacer()
@@ -142,10 +136,8 @@ struct ProjectDetailView: View {
                  : "Fix the config error above to load processes.")
                 .foregroundStyle(.secondary)
             if project.configError == nil {
-                Button("Open harbor.toml…") {
-                    if let url = project.configURL() ?? HarborConfigParser.locateConfig(in: project.root) {
-                        NSWorkspace.shared.open(url)
-                    }
+                Button("Open \(project.configFileName)…") {
+                    NSWorkspace.shared.open(project.configURL)
                 }
             }
         }

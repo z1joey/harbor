@@ -25,13 +25,13 @@ struct ProjectsSidebarView: View {
                         label: { projectRow(project) }
                     )
                     .contextMenu {
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([project.root])
-                        }
-                        if let configURL = project.configURL() {
-                            Button("Open \(configURL.lastPathComponent)…") {
-                                NSWorkspace.shared.open(configURL)
+                        if let root = project.root {
+                            Button("Reveal in Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([root])
                             }
+                        }
+                        Button("Open \(project.configFileName)…") {
+                            NSWorkspace.shared.open(project.configURL)
                         }
                     }
                 }

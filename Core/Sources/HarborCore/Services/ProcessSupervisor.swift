@@ -56,13 +56,16 @@ public final class ProcessSupervisor: ObservableObject {
     // MARK: - Start
 
     @discardableResult
-    public func start(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL, userInitiated: Bool = true) -> Result<Void, HarborError> {
+    public func start(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL?, userInitiated: Bool = true) -> Result<Void, HarborError> {
         let managed = existingOrNewProcess(key: key, definition: definition, projectRoot: projectRoot)
         managed.definition = definition
         managed.projectRoot = projectRoot
         guard !managed.state.isRunningLike, managed.state != .stopping else { return .success(()) }
         if userInitiated {
             managed.restartAttempts = 0
+        }
+        guard let projectRoot else {
+            return fail(managed, message: "Project config is missing a valid \"root\" key — no folder to run in.")
         }
 
         var workDirectory = projectRoot
@@ -193,7 +196,7 @@ public final class ProcessSupervisor: ObservableObject {
         }
     }
 
-    public func restart(key: ProcessKey, projectRoot: URL) async {
+    public func restart(key: ProcessKey, projectRoot: URL?) async {
         guard let managed = processes[key] else { return }
         let definition = managed.definition
         await stop(key: key)
@@ -220,7 +223,7 @@ public final class ProcessSupervisor: ObservableObject {
 
     // MARK: - Internals
 
-    private func existingOrNewProcess(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL) -> ManagedProcess {
+    private func existingOrNewProcess(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL?) -> ManagedProcess {
         if let existing = processes[key] { return existing }
         let managed = ManagedProcess(key: key, definition: definition, projectRoot: projectRoot, logBuffer: logBuffer(for: key))
         processes[key] = managed
@@ -269,7 +272,8 @@ public final class ProcessSupervisor: ObservableObject {
                 return
             }
             managed.logBuffer.appendLine("— Harbor: giving up after \(maxAutoRestartAttempts) consecutive auto-restarts —")
-            onAutoRestartGiveUp?(key, "\"\(managed.definition.name)\" in \(managed.projectRoot.lastPathComponent) kept crashing; auto-restart gave up.")
+            let folder = managed.projectRoot?.lastPathComponent ?? "the project"
+            onAutoRestartGiveUp?(key, "\"\(managed.definition.name)\" in \(folder) kept crashing; auto-restart gave up.")
         }
         publish(managed)
     }
@@ -344,7 +348,7 @@ public final class ProcessSupervisor: ObservableObject {
 private final class ManagedProcess {
     let key: ProcessKey
     var definition: ProcessDefinition
-    var projectRoot: URL
+    var projectRoot: URL?
     let logBuffer: LogBuffer
 
     var process: Process?
@@ -363,7 +367,7 @@ private final class ManagedProcess {
     var healthTask: Task<Void, Never>?
     var restartTask: Task<Void, Never>?
 
-    init(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL, logBuffer: LogBuffer) {
+    init(key: ProcessKey, definition: ProcessDefinition, projectRoot: URL?, logBuffer: LogBuffer) {
         self.key = key
         self.definition = definition
         self.projectRoot = projectRoot

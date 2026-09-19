@@ -66,6 +66,7 @@ final class AppState: ObservableObject {
 
     init() {
         HarborStoreLocation.migrateLegacyStoresIfNeeded()
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded()
         portObserver = PortObserver()
         registry = ProjectRegistry()
         supervisor = ProcessSupervisor()

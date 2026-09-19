@@ -1,81 +1,96 @@
 import Foundation
 import Darwin
 
-/// Loads the list of registered project roots (`~/.harbor/projects.json`) and
-/// keeps parsed `Project` values up to date by watching each config file for
-/// changes.
+/// Loads the projects registered in the central store — one config TOML per
+/// project under `~/.harbor/projects/`, the directory listing being the
+/// registry — and keeps parsed `Project` values up to date.
 ///
-/// The registry file is owned by the harbor-pilot skill (which appends project
-/// roots, possibly while no Harbor frontend is running); it may also be edited
-/// by hand. Harbor frontends only read it: both the GUI and the TUI watch the
-/// `~/.harbor` directory, so either picks up registrations live — including
-/// the skill's atomic tmp+rename replacement of the store.
+/// The store is owned by the harbor-pilot skill (which writes config files,
+/// possibly while no Harbor frontend is running) and by hand edits. Harbor
+/// frontends only read it: both the GUI and the TUI watch the central
+/// directory plus each config file, so either picks up registrations,
+/// updates, and unregistrations (file deletion) live — including the skill's
+/// atomic tmp+rename writes.
 @MainActor
 public final class ProjectRegistry: ObservableObject {
     @Published public private(set) var projects: [Project] = []
 
-    public let storeURL: URL
-    private var watchers: [String: DispatchSourceFileSystemObject] = [:]
+    /// Directory holding one config TOML per project.
+    public let centralDirectory: URL
+    private var fileWatchers: [String: DispatchSourceFileSystemObject] = [:]
     private var reloadDebounce: [String: DispatchWorkItem] = [:]
-    private var storeWatcher: DispatchSourceFileSystemObject?
-    private var storeReloadDebounce: DispatchWorkItem?
+    private var directoryWatcher: DispatchSourceFileSystemObject?
+    private var directoryReloadDebounce: DispatchWorkItem?
 
-    public init(storeURL: URL? = nil) {
-        if let storeURL {
-            self.storeURL = storeURL
+    public init(centralDirectory: URL? = nil) {
+        if let centralDirectory {
+            self.centralDirectory = centralDirectory
         } else {
-            self.storeURL = HarborStoreLocation.projectsURL
+            self.centralDirectory = HarborStoreLocation.projectsDirectory
             try? FileManager.default.createDirectory(
-                at: HarborStoreLocation.harborDirectory, withIntermediateDirectories: true)
+                at: HarborStoreLocation.projectsDirectory, withIntermediateDirectories: true)
         }
         load()
     }
 
-    // MARK: - Store
-
-    /// Canonical project root path used as `Project.id` and in `projects.json`.
-    private func normalizedRoot(_ url: URL) -> URL {
-        URL(fileURLWithPath: (url.path as NSString).standardizingPath)
-    }
-
-    private func readStore() -> [String] {
-        guard let data = FileManager.default.contents(atPath: storeURL.path) else { return [] }
-        if let paths = try? JSONDecoder().decode([String].self, from: data) {
-            return paths
-        }
-        return []
-    }
-
     // MARK: - Loading
 
+    /// Config TOMLs in the central directory, sorted by filename. Dotfiles
+    /// and editor/skill temp files are ignored.
+    private func centralConfigURLs() -> [URL] {
+        let fm = FileManager.default
+        let urls = (try? fm.contentsOfDirectory(at: centralDirectory, includingPropertiesForKeys: nil)) ?? []
+        return urls
+            .filter { $0.pathExtension == "toml" && !$0.lastPathComponent.hasPrefix(".") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
     public func load() {
-        projects = readStore().map { buildProject(root: normalizedRoot(URL(fileURLWithPath: $0))) }
+        projects = Self.flagDuplicateRoots(centralConfigURLs().map(buildProject))
         restartWatchers()
-        restartStoreWatcher()
+        restartDirectoryWatcher()
     }
 
-    /// Re-reads the store after the skill (or a hand edit) changed it. A no-op
-    /// when nothing really changed — e.g. directory events caused by the other
-    /// store file being written.
-    private func loadFromStore() {
-        let paths = readStore()
-        guard paths != projects.map(\.id) else { return }
-        projects = paths.map { buildProject(root: normalizedRoot(URL(fileURLWithPath: $0))) }
+    /// Re-reads the store after the skill (or a hand edit) changed it. A
+    /// no-op when nothing really changed — e.g. directory events caused by
+    /// sibling files in `~/.harbor`.
+    private func loadFromDirectory() {
+        let reloaded = Self.flagDuplicateRoots(centralConfigURLs().map(buildProject))
+        guard reloaded != projects else { return }
+        projects = reloaded
         restartWatchers()
     }
 
-    public func buildProject(root: URL) -> Project {
-        switch HarborConfigParser.parse(root: root) {
-        case .success(let parsed):
-            return Project(root: root, name: parsed.name, processes: parsed.processes,
-                           portClaims: parsed.portClaims,
-                           openProcessName: parsed.openProcessName, openURL: parsed.openURL,
-                           configFileName: parsed.configName, configError: nil)
-        case .failure(let error):
-            return Project(root: root, name: root.lastPathComponent, processes: [],
-                           portClaims: [],
+    /// Spec failure mode: two configs declaring the same root both stay
+    /// listed, but every entry after the first (by filename) is flagged so
+    /// the conflict is discoverable.
+    private static func flagDuplicateRoots(_ loaded: [Project]) -> [Project] {
+        var firstByRoot: [String: String] = [:]
+        return loaded.map { project in
+            guard let root = project.root?.path else { return project }
+            guard let first = firstByRoot[root] else {
+                firstByRoot[root] = project.configFileName
+                return project
+            }
+            return Project(configURL: project.configURL, root: project.root, name: project.name,
+                           processes: [], portClaims: [],
                            openProcessName: nil, openURL: nil,
-                           configFileName: HarborConfigParser.locateConfig(in: root)?.lastPathComponent,
+                           configError: "Root \(root) is already registered by \"\(first)\" — remove this duplicate config file.")
+        }
+    }
+
+    public func buildProject(configAt: URL) -> Project {
+        switch HarborConfigParser.parse(configAt: configAt) {
+        case .success(let parsed):
+            return Project(configURL: configAt, root: parsed.root, name: parsed.name,
+                           processes: parsed.processes, portClaims: parsed.portClaims,
+                           openProcessName: parsed.openProcessName, openURL: parsed.openURL,
+                           configError: nil)
+        case .failure(let error):
+            return Project(configURL: configAt, root: nil,
+                           name: configAt.deletingPathExtension().lastPathComponent,
+                           processes: [], portClaims: [],
+                           openProcessName: nil, openURL: nil,
                            configError: error.localizedDescription)
         }
     }
@@ -83,15 +98,15 @@ public final class ProjectRegistry: ObservableObject {
     /// Cheap refresh of every project's parsed config (used on window focus).
     public func reloadAll() {
         guard !projects.isEmpty else { return }
-        projects = projects.map { buildProject(root: $0.root) }
+        projects = Self.flagDuplicateRoots(centralConfigURLs().map(buildProject))
         restartWatchers()
     }
 
     /// Re-parses one project's config (config file changed on disk).
     public func reload(projectID: String) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
-        let root = projects[index].root
-        projects[index] = buildProject(root: root)
+        let configURL = projects[index].configURL
+        projects[index] = buildProject(configAt: configURL)
         watch(project: projects[index])
     }
 
@@ -104,12 +119,11 @@ public final class ProjectRegistry: ObservableObject {
     }
 
     private func watch(project: Project) {
-        watchers[project.id]?.cancel()
-        watchers[project.id] = nil
+        fileWatchers[project.id]?.cancel()
+        fileWatchers[project.id] = nil
         reloadDebounce[project.id]?.cancel()
         reloadDebounce[project.id] = nil
-        guard let configURL = HarborConfigParser.locateConfig(in: project.root) else { return }
-        let fd = open(configURL.path, O_EVTONLY)
+        let fd = open(project.configURL.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -124,7 +138,7 @@ public final class ProjectRegistry: ObservableObject {
         }
         source.setCancelHandler { close(fd) }
         source.resume()
-        watchers[project.id] = source
+        fileWatchers[project.id] = source
     }
 
     private func scheduleReload(projectID: String) {
@@ -136,17 +150,16 @@ public final class ProjectRegistry: ObservableObject {
         reloadDebounce[projectID] = work
     }
 
-    // MARK: - Store watching
+    // MARK: - Directory watching
 
-    /// Watches the directory holding the store rather than the store file:
-    /// `~/.harbor/projects.json` may not exist yet (fresh install, the app
-    /// never creates it), and the skill replaces the file via atomic rename —
-    /// both surface as directory events.
-    private func restartStoreWatcher() {
-        storeWatcher?.cancel()
-        storeWatcher = nil
-        let directory = storeURL.deletingLastPathComponent()
-        let fd = open(directory.path, O_EVTONLY)
+    /// Watches the central directory itself: new config files (skill
+    /// registrations) and deletions (unregistrations) surface as directory
+    /// events; atomic renames never keep a stale per-file watcher armed. The
+    /// load diff-guard makes events from sibling files in `~/.harbor` no-ops.
+    private func restartDirectoryWatcher() {
+        directoryWatcher?.cancel()
+        directoryWatcher = nil
+        let fd = open(centralDirectory.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -155,20 +168,20 @@ public final class ProjectRegistry: ObservableObject {
         )
         source.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
-                self?.scheduleStoreReload()
+                self?.scheduleDirectoryReload()
             }
         }
         source.setCancelHandler { close(fd) }
         source.resume()
-        storeWatcher = source
+        directoryWatcher = source
     }
 
-    private func scheduleStoreReload() {
-        storeReloadDebounce?.cancel()
+    private func scheduleDirectoryReload() {
+        directoryReloadDebounce?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.loadFromStore()
+            self?.loadFromDirectory()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
-        storeReloadDebounce = work
+        directoryReloadDebounce = work
     }
 }
