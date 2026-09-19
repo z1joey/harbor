@@ -65,6 +65,46 @@ final class HarborStoreLocationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.appendingPathComponent("projects.json").path))
     }
 
+    // MARK: - migration marker (TCC: never re-probe the App Support domain)
+
+    func testFirstPassWritesMarkerAndLaterPassesSkipLegacyProbing() throws {
+        try touch("projects.json", in: legacy, contents: "[\"/a\"]")
+        let marker = target.appendingPathComponent(HarborStoreLocation.legacyMigrationMarkerName)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+
+        HarborStoreLocation.migrateLegacyStoresIfNeeded(legacy: legacy, target: target)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path),
+                      "the first pass must record that migration has run")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target.appendingPathComponent("projects.json").path))
+
+        // A brand-new legacy store appearing afterwards is NOT picked up:
+        // the marker short-circuits before any probe of that domain.
+        try touch("projects.json", in: legacy, contents: "[\"/late\"]")
+        HarborStoreLocation.migrateLegacyStoresIfNeeded(legacy: legacy, target: target)
+        XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("projects.json"), encoding: .utf8),
+                       "[\"/a\"]", "no second migration after the marker exists")
+    }
+
+    func testConfigMigrationSkipsLegacyFallbackOnceMarkerExists() throws {
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("steward")
+        // Marker present + no modern registry anywhere: the legacy App Support
+        // registry must not even be probed, so nothing is imported.
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try writeRegistry([rootA], at: legacy.appendingPathComponent("projects.json"))
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: target.appendingPathComponent(HarborStoreLocation.legacyMigrationMarkerName).path,
+            contents: nil)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(
+            modernRegistry: target.appendingPathComponent("projects.json"), // absent
+            legacyAppSupport: legacy, central: central)
+
+        XCTAssertEqual(try? FileManager.default.contentsOfDirectory(atPath: central.path)
+            .filter { $0.hasSuffix(".toml") }, [])
+    }
+
     func testDefaultURLsPointAtHarborHomeDirectory() {
         XCTAssertEqual(HarborStoreLocation.harborDirectory.path,
                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".harbor").path)
