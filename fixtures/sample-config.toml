@@ -1,3 +1,4 @@
+root = "/Users/joey/Projects/example"  # required in ~/.harbor/projects/*.toml
 name = "example"
 
 [[process]]

@@ -70,5 +70,129 @@ final class HarborStoreLocationTests: XCTestCase {
                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".harbor").path)
         XCTAssertEqual(HarborStoreLocation.projectsURL.lastPathComponent, "projects.json")
         XCTAssertEqual(HarborStoreLocation.portPoolURL.lastPathComponent, "port-pool.json")
+        XCTAssertEqual(HarborStoreLocation.projectsDirectory.lastPathComponent, "projects")
+    }
+
+    // MARK: - 1.3 central config migration
+
+    private var central: URL!
+    private var rootA: URL!
+    private var rootB: URL!
+    private var registryURL: URL!
+
+    private func makeLegacyRoot(_ name: String, configName: String? = "harbor.toml",
+                                configText: String? = nil) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("harbor-migrate-\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        if let configName {
+            let text = configText ?? """
+            name = "\(name)"
+
+            [[process]]
+            name = "api"
+            command = "sleep 1"
+            port = 8100
+            """
+            try text.write(to: root.appendingPathComponent(configName), atomically: true, encoding: .utf8)
+        }
+        return root
+    }
+
+    private func writeRegistry(_ roots: [URL], at url: URL) throws {
+        let data = try JSONEncoder().encode(roots.map(\.path))
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
+    }
+
+    func testCentralConfigMigrationImportsRootConfigs() throws {
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("steward")
+        rootB = try makeLegacyRoot("dictionary")
+        registryURL = target.appendingPathComponent("projects.json")
+        try writeRegistry([rootA, rootB], at: registryURL)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+
+        XCTAssertEqual(try String(contentsOf: central.appendingPathComponent("steward.toml"), encoding: .utf8),
+                       "root = \"\(rootA.path)\"\n\n" +
+                       "name = \"steward\"\n\n[[process]]\nname = \"api\"\ncommand = \"sleep 1\"\nport = 8100")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: central.appendingPathComponent("dictionary.toml").path))
+        // Root-side files and the legacy registry are left untouched.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("harbor.toml").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: registryURL.path))
+    }
+
+    func testCentralConfigMigrationSkipsRootsWithoutConfig() throws {
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("empty", configName: nil)
+        registryURL = target.appendingPathComponent("projects.json")
+        try writeRegistry([rootA], at: registryURL)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: central.path))?.filter { $0.hasSuffix(".toml") },
+                       [])
+    }
+
+    func testCentralConfigMigrationIsIdempotent() throws {
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("steward")
+        registryURL = target.appendingPathComponent("projects.json")
+        try writeRegistry([rootA], at: registryURL)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+        let afterFirst = try FileManager.default.contentsOfDirectory(atPath: central.path).sorted()
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: central.path).sorted(), afterFirst)
+    }
+
+    func testCentralConfigMigrationHonorsExistingCentralFiles() throws {
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("steward")
+        registryURL = target.appendingPathComponent("projects.json")
+        try writeRegistry([rootA], at: registryURL)
+        // A central config already declares this root — it must win.
+        try FileManager.default.createDirectory(at: central, withIntermediateDirectories: true)
+        try "root = \"\(rootA.path)\"\nname = \"already-here\"\n"
+            .write(to: central.appendingPathComponent("already-here.toml"), atomically: true, encoding: .utf8)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: central.path)
+            .filter { $0.hasSuffix(".toml") }, ["already-here.toml"])
+    }
+
+    func testCentralConfigMigrationHandlesLegacyAppSupportRegistry() throws {
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("steward")
+        registryURL = legacy.appendingPathComponent("projects.json") // no ~/.harbor registry
+        try writeRegistry([rootA], at: registryURL)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(
+            modernRegistry: target.appendingPathComponent("projects.json"), // absent → fallback
+            legacyAppSupport: legacy, central: central)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: central.appendingPathComponent("steward.toml").path))
+    }
+
+    func testCentralConfigMigrationSanitizesCollisionNames() throws {
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("steward")
+        rootB = try makeLegacyRoot("weird name/with:chars")
+        registryURL = target.appendingPathComponent("projects.json")
+        try writeRegistry([rootA, rootB], at: registryURL)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+
+        let files = try FileManager.default.contentsOfDirectory(atPath: central.path).sorted()
+        XCTAssertEqual(files, ["steward.toml", "weird-name-with-chars.toml"])
     }
 }

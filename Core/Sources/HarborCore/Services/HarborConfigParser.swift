@@ -4,6 +4,9 @@ import TOMLKit
 public struct ParsedProjectConfig {
     public var name: String
     public var configName: String
+    /// Project folder the config defines, resolved from the `root` key.
+    /// Non-nil for configs parsed through `parse(configAt:)`.
+    public var root: URL?
     public var processes: [ProcessDefinition]
     public var portClaims: [PortClaim]
     public var openProcessName: String?
@@ -24,10 +27,17 @@ public enum HarborConfigError: LocalizedError {
     }
 }
 
-/// Parses `harbor.toml` / `.harbor.toml` (TOML via TOMLKit) into project definitions.
+/// Parses Harbor project config TOML (via TOMLKit) into project definitions.
+///
+/// Since 1.3 configs live in `~/.harbor/projects/*.toml` and must declare a
+/// top-level `root = "/absolute/path"` key naming the project folder.
+/// `locateConfig(in:)` and the legacy `parse(root:)` reading of per-root
+/// `harbor.toml` files survive only for the one-time 1.3 migration.
 public enum HarborConfigParser {
     public static let configNames = ["harbor.toml", ".harbor.toml"]
 
+    /// Legacy: locates a `harbor.toml` / `.harbor.toml` in a project root.
+    /// Migration only — frontends never read project roots for config.
     public static func locateConfig(in root: URL) -> URL? {
         let fm = FileManager.default
         for name in configNames {
@@ -37,17 +47,27 @@ public enum HarborConfigParser {
         return nil
     }
 
-    public static func parse(root: URL) -> Result<ParsedProjectConfig, Error> {
-        guard let configURL = locateConfig(in: root) else {
-            return .failure(HarborConfigError.readFailed("No harbor.toml (or .harbor.toml) found in this folder."))
-        }
-        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else {
-            return .failure(HarborConfigError.readFailed("Could not read \(configURL.lastPathComponent)."))
+    /// Parses a central config file from `~/.harbor/projects/`. The file must
+    /// declare `root = "/absolute/path"` (`~` allowed); the display name
+    /// defaults to the root folder's name.
+    public static func parse(configAt: URL) -> Result<ParsedProjectConfig, Error> {
+        guard let text = try? String(contentsOf: configAt, encoding: .utf8) else {
+            return .failure(HarborConfigError.readFailed("Could not read \(configAt.lastPathComponent)."))
         }
         do {
             let parsed = try parse(text: text)
+            guard let rootString = parsed.rootPath, !rootString.isEmpty else {
+                throw HarborConfigError.invalid(
+                    "Missing the required top-level \"root\" key — add root = \"/absolute/path/to/project\".")
+            }
+            let expanded = (rootString as NSString).expandingTildeInPath
+            guard expanded.hasPrefix("/") else {
+                throw HarborConfigError.invalid("root \"\(rootString)\" must be an absolute path (\"~\" allowed).")
+            }
+            let root = URL(fileURLWithPath: expanded).standardizedFileURL
             let name = parsed.name?.isEmpty == false ? parsed.name! : root.lastPathComponent
-            return .success(ParsedProjectConfig(name: name, configName: configURL.lastPathComponent,
+            return .success(ParsedProjectConfig(name: name, configName: configAt.lastPathComponent,
+                                                root: root,
                                                 processes: parsed.processes, portClaims: parsed.portClaims,
                                                 openProcessName: parsed.openProcessName,
                                                 openURL: parsed.openURL))
@@ -57,8 +77,9 @@ public enum HarborConfigParser {
     }
 
     /// Throws `HarborConfigError` with a user-readable message on any problem.
-    public static func parse(text: String) throws -> (name: String?, processes: [ProcessDefinition], portClaims: [PortClaim],
-                                                       openProcessName: String?, openURL: URL?) {
+    public static func parse(text: String) throws -> (name: String?, rootPath: String?,
+                                                      processes: [ProcessDefinition], portClaims: [PortClaim],
+                                                      openProcessName: String?, openURL: URL?) {
         let table: TOMLTable
         do {
             table = try TOMLTable(string: text)
@@ -68,12 +89,23 @@ public enum HarborConfigParser {
 
         let name = table["name"]?.string
 
+        var rootPath: String?
+        if let rootString = table["root"]?.string {
+            guard !rootString.isEmpty else {
+                throw HarborConfigError.invalid("\"root\" must be a non-empty absolute path.")
+            }
+            rootPath = rootString
+        } else if table["root"] != nil {
+            throw HarborConfigError.invalid("\"root\" must be a string holding an absolute project path.")
+        }
+
         guard let processArray = table["process"]?.array else {
             if table["process"] != nil {
                 throw HarborConfigError.invalid("\"process\" must be a list of tables ([[process]]).")
             }
             let open = try parseOpenBrowser(table: table, processNames: [])
-            return (name, [], try parsePortClaims(table: table, processes: []), open.openProcessName, open.openURL)
+            return (name, rootPath, [], try parsePortClaims(table: table, processes: []),
+                    open.openProcessName, open.openURL)
         }
 
         var processes: [ProcessDefinition] = []
@@ -163,7 +195,7 @@ public enum HarborConfigParser {
             ))
         }
         let open = try parseOpenBrowser(table: table, processNames: Set(processes.map(\.name)))
-        return (name, processes, try parsePortClaims(table: table, processes: processes),
+        return (name, rootPath, processes, try parsePortClaims(table: table, processes: processes),
                 open.openProcessName, open.openURL)
     }
 

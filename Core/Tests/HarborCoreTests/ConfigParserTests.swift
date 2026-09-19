@@ -47,12 +47,12 @@ final class ConfigParserTests: XCTestCase {
         var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         var url: URL?
         for _ in 0..<6 {
-            let candidate = dir.appendingPathComponent("fixtures/sample-harbor.toml")
+            let candidate = dir.appendingPathComponent("fixtures/sample-config.toml")
             if FileManager.default.fileExists(atPath: candidate.path) { url = candidate; break }
             dir.deleteLastPathComponent()
         }
         guard let url else {
-            XCTFail("fixtures/sample-harbor.toml not found in any parent directory")
+            XCTFail("fixtures/sample-config.toml not found in any parent directory")
             return
         }
         let text = try String(contentsOf: url, encoding: .utf8)
@@ -61,20 +61,77 @@ final class ConfigParserTests: XCTestCase {
         XCTAssertEqual(parsed.processes[0].port, 8000)
     }
 
-    func testDotHarborTomlIsLocated() throws {
+    func testLocateConfigFindsBothFlavors() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("harbor-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         try sampleToml.write(to: root.appendingPathComponent(".harbor.toml"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(HarborConfigParser.locateConfig(in: root)?.lastPathComponent, ".harbor.toml")
+        try? FileManager.default.removeItem(at: root.appendingPathComponent(".harbor.toml"))
+        try sampleToml.write(to: root.appendingPathComponent("harbor.toml"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(HarborConfigParser.locateConfig(in: root)?.lastPathComponent, "harbor.toml")
+    }
 
-        let result = HarborConfigParser.parse(root: root)
-        guard case .success(let parsed) = result else {
-            return XCTFail("expected success, got \(result)")
+    // MARK: - central configs (parse(configAt:))
+
+    private func writeCentralConfig(_ text: String, name: String = "central") throws -> URL {
+        let central = FileManager.default.temporaryDirectory
+            .appendingPathComponent("harbor-central-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: central, withIntermediateDirectories: true)
+        let url = central.appendingPathComponent("\(name).toml")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    func testCentralConfigParsesRootKey() throws {
+        let url = try writeCentralConfig("""
+        root = "/Users/joey/Projects/example"
+
+        [[process]]
+        name = "api"
+        command = "run api"
+        port = 8000
+        """)
+        guard case .success(let parsed) = HarborConfigParser.parse(configAt: url) else {
+            return XCTFail("expected success")
         }
-        XCTAssertEqual(parsed.configName, ".harbor.toml")
-        XCTAssertEqual(parsed.processes.count, 2)
+        XCTAssertEqual(parsed.configName, "central.toml")
+        XCTAssertEqual(parsed.root?.path, "/Users/joey/Projects/example")
+        XCTAssertEqual(parsed.name, "example", "name falls back to the root folder name")
+        XCTAssertEqual(parsed.processes.first?.port, 8000)
+    }
+
+    func testCentralConfigExpandsTildeRoot() throws {
+        let url = try writeCentralConfig("""
+        root = "~/Projects/example"
+        name = "tilde"
+        """)
+        guard case .success(let parsed) = HarborConfigParser.parse(configAt: url) else {
+            return XCTFail("expected success")
+        }
+        XCTAssertEqual(parsed.root?.path, FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Projects/example").standardizedFileURL.path)
+        XCTAssertEqual(parsed.name, "tilde", "an explicit name wins over the folder fallback")
+    }
+
+    func testCentralConfigWithoutRootKeyFails() throws {
+        let url = try writeCentralConfig(sampleToml)
+        guard case .failure(let error) = HarborConfigParser.parse(configAt: url) else {
+            return XCTFail("expected failure")
+        }
+        XCTAssertTrue(error.localizedDescription.contains("root"),
+                      "unexpected message: \(error.localizedDescription)")
+    }
+
+    func testCentralConfigWithRelativeRootFails() throws {
+        let url = try writeCentralConfig("root = \"Projects/example\"\n")
+        guard case .failure(let error) = HarborConfigParser.parse(configAt: url) else {
+            return XCTFail("expected failure")
+        }
+        XCTAssertTrue(error.localizedDescription.contains("absolute"),
+                      "unexpected message: \(error.localizedDescription)")
     }
 
     func testInvalidTomlYieldsReadableParseError() {

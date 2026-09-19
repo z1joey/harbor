@@ -18,17 +18,18 @@ final class PortPlannerTests: XCTestCase {
                                   port: port, autoRestart: false, env: [:])
             }
             .sorted { $0.name < $1.name }
-        return Project(root: URL(fileURLWithPath: "/tmp/\(name)"), name: name,
+        return Project(configURL: URL(fileURLWithPath: "/tmp/harbor-test/\(name).toml"),
+                       root: URL(fileURLWithPath: "/tmp/\(name)"), name: name,
                        processes: processes, portClaims: claims,
                        openProcessName: nil, openURL: nil,
-                       configFileName: "harbor.toml", configError: nil)
+                       configError: nil)
     }
 
     /// Maps a PID to a managed project with the given name.
     private func resolver(_ holders: [pid_t: String]) -> (pid_t) -> PortPlanner.ManagedHolder? {
         return { pid in
             guard let name = holders[pid] else { return nil }
-            return PortPlanner.ManagedHolder(projectID: "/tmp/\(name)", projectName: name,
+            return PortPlanner.ManagedHolder(projectID: "/tmp/harbor-test/\(name).toml", projectName: name,
                                              processName: "proc")
         }
     }

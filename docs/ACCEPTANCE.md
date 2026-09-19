@@ -34,7 +34,7 @@ steps at the bottom.
 
 ## Task 2 — Config + registry (M2a)
 
-- [x] AC2.1 Valid `harbor.toml` registers project and processes. *(service harness: real `fixtures/sample-harbor.toml` parsed + registry add)*
+- [x] AC2.1 Valid `harbor.toml` registers project and processes. *(service harness: real `fixtures/sample-config.toml` parsed + registry add)*
 - [x] AC2.2 `.harbor.toml` works the same. *(service harness)*
 - [x] AC2.3 Invalid TOML shows an error and does not register a half-broken silent project. *(service harness: readable error with line/column; project registers with visible error banner and zero processes)*
 - [x] AC2.4 Remove Project removes it from Harbor UI and `projects.json` but leaves files on disk. *(service harness)*
@@ -111,6 +111,47 @@ import / Remove Project / TUI `:add` & `:remove` were removed by design.
 - [ ] AC7.7 GUI shows skill-hint empty states (sidebar, popover, convention)
       and the TUI `:` bar accepts only `refresh`/`q`. (Manual step M13.)
 
+## Task 8 — Central config store (v1.3.0)
+
+`~/.harbor` becomes the single source of truth: one config TOML per project
+under `~/.harbor/projects/` (each declaring `root = "/abs/path"`), the
+directory listing IS the registry, and Harbor never reads project roots for
+config. Registration = the skill installing a central file; unregistering =
+deleting it.
+
+- [x] AC8.1 `HarborStoreLocation.projectsDirectory` points at
+      `~/.harbor/projects/`. *(service tests: HarborStoreLocationTests)*
+- [x] AC8.2 One-time config migration imports each pre-1.3 registered root's
+      `harbor.toml`/`.harbor.toml` into the central store with a `root` key
+      injected; existing central files win; root files and the legacy
+      registry are never modified or deleted; re-running is a no-op; roots
+      without a config are skipped. *(service tests:
+      HarborStoreLocationTests; python tests: CentralConfigMigrationTests)*
+- [x] AC8.3 The parser accepts central configs via `parse(configAt:)`,
+      requires an absolute `root` (`~` allowed), and rejects missing/relative
+      roots with a readable message. *(service tests: ConfigParserTests)*
+- [x] AC8.4 The registry loads the central directory (sorted, dotfiles/temp
+      skipped), never rewrites it, watches both the directory (add/remove
+      via atomic rename) and each config file (in-place edits), and picks up
+      registrations, updates, and unregistrations live. *(service tests:
+      ProjectRegistryTests)*
+- [x] AC8.5 A project whose root folder is gone, a broken TOML, a missing
+      `root` key, and two configs claiming the same root (second by filename
+      flagged) all render as error rows without crashing the rest.
+      *(service tests: ProjectRegistryTests)*
+- [x] AC8.6 `register_project.py <root> --config <draft>` (or stdin) injects
+      `root`, validates structure + cross-project port overlaps, installs
+      atomically (REGISTERED/UPDATED/UNCHANGED), and keeps the pre-1.3
+      `projects.json` mirror in sync; `unregister_project.py` removes the
+      central file. *(python tests: RegisterProjectTests — 38 checks)*
+- [x] AC8.7 `next_pool_port.py` scans the central store
+      (`--registered`/`--projects-dir`); the validator flags project-root
+      `harbor.toml` files as no longer read. *(python tests: ScriptTests)*
+- [ ] AC8.8 With the app running, `register_project.py <root> --config
+      <draft>` makes the project appear without restart, deleting the
+      central file removes it, and a migrated project starts/stops
+      normally. (Manual step M14.)
+
 ## Cross-cutting
 
 - [x] ACX.1 No force-unwrap crashes in happy path or empty states. (Repo-wide grep: no `!` force unwraps / `try!` / `as!` in `App/`; empty states handled in every list view.)
@@ -155,17 +196,23 @@ Launch a freshly built app:
   the harbor-pilot skill (it drafts the TOML itself).*
 - **M13 (AC7.6/7.7):** With Harbor running, run
   `python3 ~/.agents/skills/harbor-pilot/scripts/register_project.py
-  ~/Projects/harbor/fixtures/selftest-project` → the project appears within
-  ~1s. Inspect `~/.harbor/projects.json`; remove the entry → the project
+  ~/Projects/harbor/fixtures/selftest-project --config
+  ~/Projects/harbor/fixtures/selftest-project/harbor.toml` → the project appears within
+  ~1s. Inspect `~/.harbor/projects/`; delete the central config → the project
   vanishes live. Empty states (sidebar, popover) mention the skill; TUI `:`
   bar rejects `add` with a hint.
+- **M14 (AC8.8):** With Harbor 1.3 running, register a project via
+  `register_project.py <root> --config <draft>` → appears live. Quit, delete
+  the root-side `harbor.toml` if any, relaunch → the migrated central config
+  still defines the project (root file ignored); start/stop a process
+  normally. Delete the central config → the project disappears live.
 - **M9 (AC4.5):** Toolbar gear → toggle "Launch at Login" → check
   System Settings ▸ General ▸ Login Items; toggle again to remove.
 - **M10 (AC4.6):** Add `auto_restart = true` to a process, start it, `kill -9`
   the child twice → crash notification appears (first use asks permission);
   denying permission silences future ones without errors.
 - **M11 (AC5.6–5.8):** Register two projects claiming the same port (e.g. copy
-  `fixtures/sample-harbor.toml` into a second folder). Port Allocation
+  `fixtures/sample-config.toml` into a second folder). Port Allocation
   Convention lists the port with an orange overlap banner and the sidebar badge
   shows "1".
   With project A running, start the colliding process of project B → the
