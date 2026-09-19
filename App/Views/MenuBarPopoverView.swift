@@ -27,6 +27,7 @@ struct MenuBarPopoverView: View {
             Divider()
             projectsSection
 
+            Divider()
             KeepAwakeRow(sleepGuard: appState.sleepGuard)
 
             Divider()
