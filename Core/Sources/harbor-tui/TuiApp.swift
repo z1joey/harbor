@@ -50,6 +50,11 @@ final class TuiApp {
             case killListener(Listener)
             case startProcess(Project, ProcessDefinition, ProcessKey, PortPlanner.RuntimeConflict)
             case startAllConflicts(Project, [PortPlanner.RuntimeConflict])
+            /// Held `[[port_claim]]`s bound to the process/project being
+            /// started — start-anyway or cancel only (the holder is normally
+            /// infrastructure like com.docker.backend; freeing it is unsafe).
+            case startProcessClaims(Project, ProcessDefinition, ProcessKey, [PortPlanner.RuntimeConflict])
+            case startAllClaims(Project, [PortPlanner.RuntimeConflict])
         }
 
         let message: String
@@ -170,8 +175,13 @@ final class TuiApp {
                     self.draw()
                 }
             case "s":
-                supervisor.start(key: key, definition: definition, projectRoot: project.root)
-                showFlash("started \(definition.name) despite conflict", style: Style(fg: .yellow))
+                let claimBlockers = self.claimBlockers(project: project, startingProcesses: [definition.name])
+                if !claimBlockers.isEmpty {
+                    self.promptClaimConflicts(project: project, definition: definition, key: key, blockers: claimBlockers)
+                } else {
+                    supervisor.start(key: key, definition: definition, projectRoot: project.root)
+                    showFlash("started \(definition.name) despite conflict", style: Style(fg: .yellow))
+                }
             default: break
             }
         case .startAllConflicts(let project, let conflicts):
@@ -186,8 +196,28 @@ final class TuiApp {
                     self.draw()
                 }
             case "a":
-                startAll(project, force: true)
+                let pendingNames = Set(project.processes.compactMap { definition -> String? in
+                    let key = ProcessKey(projectID: project.id, processName: definition.name)
+                    let state = supervisor.status(for: key).state
+                    return (!state.isRunningLike && state != .stopping) ? definition.name : nil
+                })
+                let claimBlockers = claimBlockers(project: project, startingProcesses: pendingNames)
+                if !claimBlockers.isEmpty {
+                    promptProjectClaimConflicts(project: project, blockers: claimBlockers)
+                } else {
+                    startAll(project, force: true)
+                }
             default: break
+            }
+        case .startProcessClaims(let project, let definition, let key, _):
+            if choice == "s" {
+                supervisor.start(key: key, definition: definition, projectRoot: project.root)
+                showFlash("started \(definition.name) despite conflict", style: Style(fg: .yellow))
+            }
+        case .startAllClaims(let project, _):
+            if choice == "a" {
+                startAll(project, force: true)
+                showFlash("starting \(project.name) despite conflicts", style: Style(fg: .yellow))
             }
         }
         draw()
@@ -370,6 +400,11 @@ final class TuiApp {
                 action: .startProcess(project, definition, key, conflict)))
             return
         }
+        let claimBlockers = claimBlockers(project: project, startingProcesses: [definition.name])
+        if !claimBlockers.isEmpty {
+            promptClaimConflicts(project: project, definition: definition, key: key, blockers: claimBlockers)
+            return
+        }
         supervisor.start(key: key, definition: definition, projectRoot: project.root)
     }
 
@@ -390,6 +425,11 @@ final class TuiApp {
         let pendingNames = Set(pending.map(\.name))
         let blocked = currentConflicts.filter { $0.projectID == project.id && pendingNames.contains($0.processName ?? "") }
         if blocked.isEmpty {
+            let claimBlockers = claimBlockers(project: project, startingProcesses: pendingNames)
+            if !claimBlockers.isEmpty {
+                promptProjectClaimConflicts(project: project, blockers: claimBlockers)
+                return
+            }
             startAll(project, force: false)
         } else {
             let heldPorts = blocked.map { ":\($0.port)" }.joined(separator: ", ")
@@ -402,6 +442,37 @@ final class TuiApp {
                 ],
                 action: .startAllConflicts(project, blocked)))
         }
+    }
+
+    /// Held `[[port_claim]]`s bound to `startingProcesses`, freshly resolved.
+    private func claimBlockers(project: Project, startingProcesses: Set<String>) -> [PortPlanner.RuntimeConflict] {
+        PortPlanner.claimConflicts(forProject: project,
+                                   startingProcesses: startingProcesses,
+                                   listeners: observer.listeners,
+                                   managedHolder: { coordinator.managedHolder(forPID: $0) })
+    }
+
+    private func promptClaimConflicts(project: Project, definition: ProcessDefinition, key: ProcessKey,
+                                      blockers: [PortPlanner.RuntimeConflict]) {
+        let held = blockers.map { ":\($0.port) held by \($0.holderLabel)" }.joined(separator: ", ")
+        overlay = .confirm(Confirmation(
+            message: "\(held) — start \(definition.name)?",
+            options: [
+                ConfirmBar.Option(key: "s", label: "start anyway"),
+                ConfirmBar.Option(key: "c", label: "cancel"),
+            ],
+            action: .startProcessClaims(project, definition, key, blockers)))
+    }
+
+    private func promptProjectClaimConflicts(project: Project, blockers: [PortPlanner.RuntimeConflict]) {
+        let held = blockers.map { ":\($0.port) held by \($0.holderLabel)" }.joined(separator: ", ")
+        overlay = .confirm(Confirmation(
+            message: "\(held) — start all for \(project.name)?",
+            options: [
+                ConfirmBar.Option(key: "a", label: "start all anyway"),
+                ConfirmBar.Option(key: "c", label: "cancel"),
+            ],
+            action: .startAllClaims(project, blockers)))
     }
 
     /// Starts every not-running process of `project`. Without `force`, blocked

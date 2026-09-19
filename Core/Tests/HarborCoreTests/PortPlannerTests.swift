@@ -119,6 +119,84 @@ final class PortPlannerTests: XCTestCase {
         XCTAssertEqual(conflicts.map(\.port), [5173, 9000])
     }
 
+    // MARK: - Claim gates (start time)
+
+    func testBoundClaimHeldByForeignListenerGatesStart() {
+        // The dictionary-app regression: a stale container squats on the port
+        // the process is about to publish; `start` must surface it instead of
+        // sailing through.
+        let alpha = project("alpha",
+                            claims: [PortClaim(port: 8080, note: "frontend", processName: "app")])
+        let conflicts = PortPlanner.claimConflicts(forProject: alpha,
+                                                   startingProcesses: ["app"],
+                                                   listeners: [listener(8080, 4242, name: "com.docker.backend")],
+                                                   managedHolder: resolver([:]))
+        XCTAssertEqual(conflicts.count, 1)
+        XCTAssertEqual(conflicts[0].port, 8080)
+        XCTAssertEqual(conflicts[0].processName, "app")
+        XCTAssertEqual(conflicts[0].listener.pid, 4242)
+        XCTAssertNil(conflicts[0].managedHolder)
+        XCTAssertEqual(conflicts[0].holderLabel, "com.docker.backend")
+    }
+
+    func testFreePortDoesNotGateClaimStart() {
+        let alpha = project("alpha", claims: [PortClaim(port: 8080, note: nil, processName: "app")])
+        let conflicts = PortPlanner.claimConflicts(forProject: alpha,
+                                                   startingProcesses: ["app"],
+                                                   listeners: [listener(9999, 1)],
+                                                   managedHolder: resolver([:]))
+        XCTAssertTrue(conflicts.isEmpty)
+    }
+
+    func testUnboundClaimNeverGatesStart() {
+        // Unbound claims are dependency declarations (a brew postgres): being
+        // held is their healthy state, never a start blocker.
+        let alpha = project("alpha", claims: [PortClaim(port: 5432, note: "postgres", processName: nil)])
+        let conflicts = PortPlanner.claimConflicts(forProject: alpha,
+                                                   startingProcesses: ["app"],
+                                                   listeners: [listener(5432, 55)],
+                                                   managedHolder: resolver([:]))
+        XCTAssertTrue(conflicts.isEmpty)
+    }
+
+    func testClaimBoundToOtherProcessDoesNotGate() {
+        let alpha = project("alpha", claims: [PortClaim(port: 8001, note: "api", processName: "backend")])
+        let conflicts = PortPlanner.claimConflicts(forProject: alpha,
+                                                   startingProcesses: ["web"],
+                                                   listeners: [listener(8001, 55)],
+                                                   managedHolder: resolver([:]))
+        XCTAssertTrue(conflicts.isEmpty)
+    }
+
+    func testSameProjectHolderDoesNotGateClaimStart() {
+        let alpha = project("alpha", claims: [PortClaim(port: 8080, note: nil, processName: "app")])
+        let conflicts = PortPlanner.claimConflicts(forProject: alpha,
+                                                   startingProcesses: ["app"],
+                                                   listeners: [listener(8080, 7)],
+                                                   managedHolder: resolver([7: "alpha"]))
+        XCTAssertTrue(conflicts.isEmpty)
+    }
+
+    func testOtherProjectManagedHolderGatesClaimStart() {
+        let alpha = project("alpha", claims: [PortClaim(port: 8080, note: nil, processName: "app")])
+        let conflicts = PortPlanner.claimConflicts(forProject: alpha,
+                                                   startingProcesses: ["app"],
+                                                   listeners: [listener(8080, 99)],
+                                                   managedHolder: resolver([99: "beta"]))
+        XCTAssertEqual(conflicts.count, 1)
+        XCTAssertEqual(conflicts[0].managedHolder?.projectName, "beta")
+    }
+
+    func testStartAllGatesEveryBoundClaimSortedByPort() {
+        let alpha = project("alpha", claims: [PortClaim(port: 8080, note: "frontend", processName: "app"),
+                                              PortClaim(port: 8001, note: "api", processName: "app")])
+        let conflicts = PortPlanner.claimConflicts(forProject: alpha,
+                                                   startingProcesses: ["app", "worker"],
+                                                   listeners: [listener(8080, 1), listener(8001, 2)],
+                                                   managedHolder: resolver([:]))
+        XCTAssertEqual(conflicts.map(\.port), [8001, 8080])
+    }
+
     // MARK: - Static overlaps
 
     func testStaticOverlapDetectsPortsClaimedByTwoProjects() {

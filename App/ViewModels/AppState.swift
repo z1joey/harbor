@@ -19,6 +19,10 @@ final class AppState: ObservableObject {
     @Published var pendingConflict: PendingConflict?
     /// "Start all" for a project where at least one needed port is already held.
     @Published var pendingStartAllConflicts: PendingStartAllConflicts?
+    /// A start the user still has to confirm because a `[[port_claim]]` bound
+    /// to the process being started is already held (runtime conflict
+    /// detection ignores claims on purpose — this is the one-shot gate).
+    @Published var pendingClaimConflict: PendingClaimConflict?
     /// A kill-by-port the user still has to confirm (PID not managed by Harbor).
     @Published var pendingKill: PendingKill?
     @Published var lastKillError: String?
@@ -55,6 +59,16 @@ final class AppState: ObservableObject {
         let projectName: String
         let items: [PortPlanner.RuntimeConflict]
         var id: String { projectID }
+    }
+
+    /// Held `[[port_claim]]`s for a start awaiting confirmation. `processName`
+    /// is nil when the whole project was about to start (start-all).
+    struct PendingClaimConflict: Identifiable {
+        let projectID: String
+        let projectName: String
+        let processName: String?
+        let items: [PortPlanner.RuntimeConflict]
+        var id: String { "\(projectID)::\(processName ?? "*")" }
     }
 
     struct PendingKill: Identifiable {
@@ -148,11 +162,23 @@ final class AppState: ObservableObject {
 
     func start(project: Project, definition: ProcessDefinition, force: Bool = false) {
         let key = ProcessKey(projectID: project.id, processName: definition.name)
-        if !force, let port = definition.port {
-            let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
-                                                 managedHolder: { pid in self.managedHolder(forPID: pid) })
-            if let conflict = blockers.first(where: { $0.port == port }) {
-                pendingConflict = PendingConflict(key: key, from: conflict)
+        if !force {
+            let managedHolder = { (pid: pid_t) in self.managedHolder(forPID: pid) }
+            if let port = definition.port {
+                let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
+                                                     managedHolder: managedHolder)
+                if let conflict = blockers.first(where: { $0.port == port }) {
+                    pendingConflict = PendingConflict(key: key, from: conflict)
+                    return
+                }
+            }
+            let claimBlockers = PortPlanner.claimConflicts(forProject: project,
+                                                           startingProcesses: [definition.name],
+                                                           listeners: portObserver.listeners,
+                                                           managedHolder: managedHolder)
+            if !claimBlockers.isEmpty {
+                pendingClaimConflict = PendingClaimConflict(projectID: project.id, projectName: project.name,
+                                                            processName: definition.name, items: claimBlockers)
                 return
             }
         }
@@ -238,6 +264,25 @@ final class AppState: ObservableObject {
         pendingStartAllConflicts = nil
     }
 
+    /// Confirms a held-`[[port_claim]]` prompt: starts the process (or the
+    /// whole project) with `force`, so both gates stay bypassed — the user
+    /// explicitly accepted every blocker on the way here.
+    func confirmPendingClaimConflict() {
+        guard let pending = pendingClaimConflict else { return }
+        pendingClaimConflict = nil
+        guard let project = registry.projects.first(where: { $0.id == pending.projectID }) else { return }
+        if let processName = pending.processName,
+           let definition = project.processes.first(where: { $0.name == processName }) {
+            start(project: project, definition: definition, force: true)
+        } else {
+            startProject(project, force: true)
+        }
+    }
+
+    func cancelPendingClaimConflict() {
+        pendingClaimConflict = nil
+    }
+
     /// "Free the ports, then start all": stop/kill every holder, refresh the
     /// port snapshot, then start the whole project.
     func confirmPendingStartAllConflictsFreeingPorts() {
@@ -259,8 +304,27 @@ final class AppState: ObservableObject {
     /// With `force`, blocked processes start anyway instead of being skipped.
     func startProject(_ project: Project, force: Bool = false) {
         NotificationService.requestAuthorizationIfNeeded()
+        let managedHolder = { (pid: pid_t) in self.managedHolder(forPID: pid) }
         let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
-                                             managedHolder: { pid in self.managedHolder(forPID: pid) })
+                                             managedHolder: managedHolder)
+        var pendingNames = Set<String>()
+        for definition in project.processes {
+            let state = supervisor.status(for: ProcessKey(projectID: project.id, processName: definition.name)).state
+            if !state.isRunningLike, state != .stopping {
+                pendingNames.insert(definition.name)
+            }
+        }
+        if !force, !pendingNames.isEmpty {
+            let claimBlockers = PortPlanner.claimConflicts(forProject: project,
+                                                           startingProcesses: pendingNames,
+                                                           listeners: portObserver.listeners,
+                                                           managedHolder: managedHolder)
+            if !claimBlockers.isEmpty {
+                pendingClaimConflict = PendingClaimConflict(projectID: project.id, projectName: project.name,
+                                                            processName: nil, items: claimBlockers)
+                return
+            }
+        }
         for definition in project.processes {
             let key = ProcessKey(projectID: project.id, processName: definition.name)
             let state = supervisor.status(for: key).state

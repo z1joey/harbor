@@ -20,6 +20,11 @@ struct ProjectConflictDialogs: ViewModifier {
         return projectID == nil || pending.projectID == projectID
     }
 
+    private var claimVisible: Bool {
+        guard let pending = appState.pendingClaimConflict else { return false }
+        return projectID == nil || pending.projectID == projectID
+    }
+
     func body(content: Content) -> some View {
         content
             .confirmationDialog(
@@ -58,6 +63,31 @@ struct ProjectConflictDialogs: ViewModifier {
             } message: { pending in
                 Text(pending.items.map { Self.message(for: $0) }.joined(separator: "\n"))
             }
+            .confirmationDialog(
+                "Port in use",
+                isPresented: Binding(
+                    get: { claimVisible },
+                    set: { if !$0 { appState.cancelPendingClaimConflict() } }
+                ),
+                presenting: claimVisible ? appState.pendingClaimConflict : nil
+            ) { pending in
+                Button(Self.claimButtonTitle(for: pending), role: .destructive) {
+                    appState.confirmPendingClaimConflict()
+                }
+                Button("Cancel", role: .cancel) { appState.cancelPendingClaimConflict() }
+            } message: { pending in
+                Text(pending.items.map { Self.message(for: $0) }.joined(separator: "\n"))
+            }
+    }
+
+    /// Held `[[port_claim]]`s get no "free the port" escape: their holder is
+    /// normally infrastructure (e.g. com.docker.backend) that must not be
+    /// killed — the user decides between starting anyway and cancelling.
+    private static func claimButtonTitle(for pending: AppState.PendingClaimConflict) -> String {
+        if let processName = pending.processName {
+            return "Start \"\(processName)\" anyway"
+        }
+        return "Start all anyway"
     }
 
     private static func freeButtonTitle(for pending: AppState.PendingConflict) -> String {
