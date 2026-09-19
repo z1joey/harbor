@@ -7,6 +7,9 @@ struct ProjectDetailView: View {
     let project: Project
 
     @State private var selectedProcessName: String?
+    /// Draggable log-pane height, persisted across launches like a sidebar width.
+    @AppStorage("logPaneHeight") private var logPaneHeight: Double = 240
+    @State private var dragStartHeight: Double?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +22,7 @@ struct ProjectDetailView: View {
             overlapBanners
             Divider()
             processList
-            Divider()
+            logPaneResizer
             logPane
         }
         .projectConflictDialogs(projectID: project.id)
@@ -226,6 +229,45 @@ struct ProjectDetailView: View {
 
     // MARK: - Logs
 
+    /// Sidebar-style grabber between the process list and the logs: drag it
+    /// up/down to resize the log pane (height persists across launches).
+    private var logPaneResizer: some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(height: 10)
+            .overlay(alignment: .center) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(Color.secondary.opacity(0.35))
+                    .frame(width: 36, height: 3)
+            }
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let start = dragStartHeight ?? logPaneHeight
+                        dragStartHeight = start
+                        logPaneHeight = min(500, max(80, start - value.translation.height))
+                    }
+                    .onEnded { _ in dragStartHeight = nil }
+            )
+            .accessibilityLabel("Resize logs")
+            .accessibilityValue("\(Int(logPaneHeight)) points")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: logPaneHeight = min(500, logPaneHeight + 20)
+                case .decrement: logPaneHeight = max(80, logPaneHeight - 20)
+                @unknown default: break
+                }
+            }
+    }
+
     @ViewBuilder
     private var logPane: some View {
         if let definition = project.processes.first(where: { $0.name == selectedProcessName }) {
@@ -238,7 +280,7 @@ struct ProjectDetailView: View {
                 readyURL: definition.readyURL(port: livePort(for: definition, status: status)),
                 isReady: status.ready
             )
-            .frame(height: 240)
+            .frame(height: logPaneHeight)
         } else {
             Text("Select a process above to see its logs.")
                 .font(.caption)

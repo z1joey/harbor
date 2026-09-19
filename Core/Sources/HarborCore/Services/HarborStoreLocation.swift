@@ -36,14 +36,26 @@ public enum HarborStoreLocation {
             .appendingPathComponent("Harbor", isDirectory: true)
     }
 
+    /// Written into the harbor root after the first legacy-migration pass.
+    /// Once present, later launches never probe `~/Library/Application
+    /// Support` again: probing another app identity's data triggers macOS
+    /// 26's TCC app-data prompt on every launch of an ad-hoc-signed build,
+    /// and the grant cannot persist for such builds.
+    public static let legacyMigrationMarkerName = ".legacy-migration-done"
+
     /// One-time move of the legacy Application Support stores into
     /// `~/.harbor`. Files already in `~/.harbor` always win (the skill may
     /// have created them); when two frontends race, the loser's move is a
-    /// silent no-op.
+    /// silent no-op. After the first pass a marker in the harbor root short-
+    /// circuits every later launch, so the legacy domain is never touched
+    /// again.
     public static func migrateLegacyStoresIfNeeded(legacy: URL = legacyDirectory,
                                                    target: URL = harborDirectory) {
         let fm = FileManager.default
         try? fm.createDirectory(at: target, withIntermediateDirectories: true)
+        let marker = target.appendingPathComponent(legacyMigrationMarkerName)
+        guard !fm.fileExists(atPath: marker.path) else { return }
+        defer { fm.createFile(atPath: marker.path, contents: nil) }
         guard fm.fileExists(atPath: legacy.path) else { return }
         for name in ["projects.json", "port-pool.json"] {
             let from = legacy.appendingPathComponent(name)
@@ -84,8 +96,17 @@ public enum HarborStoreLocation {
             registry = legacyRegistry
         } else {
             let modern = modernRegistry ?? projectsURL
-            let legacy = legacyAppSupport.appendingPathComponent("projects.json")
-            registry = fm.fileExists(atPath: modern.path) ? modern : legacy
+            if fm.fileExists(atPath: modern.path) {
+                registry = modern
+            } else {
+                // The legacy fallback probes the App Support domain — skip it
+                // entirely once a first migration pass has run (marker in the
+                // harbor root), so later launches never touch it again.
+                let marker = central.deletingLastPathComponent()
+                    .appendingPathComponent(legacyMigrationMarkerName)
+                guard !fm.fileExists(atPath: marker.path) else { return }
+                registry = legacyAppSupport.appendingPathComponent("projects.json")
+            }
         }
         guard let data = fm.contents(atPath: registry.path),
               let roots = try? JSONDecoder().decode([String].self, from: data) else { return }

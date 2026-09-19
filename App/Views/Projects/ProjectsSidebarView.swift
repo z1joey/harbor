@@ -59,7 +59,7 @@ struct ProjectsSidebarView: View {
                     item: .ports,
                     label: {
                         HStack {
-                            Image(systemName: "dot.3.connected.endpoints")
+                            Image(systemName: "dot.radiowaves.left.and.right")
                             Text("Listening Ports")
                             Spacer()
                             Text(String(appState.portObserver.listeners.count))
