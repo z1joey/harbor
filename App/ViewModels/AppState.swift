@@ -13,6 +13,8 @@ final class AppState: ObservableObject {
     let portPoolStore: PortPoolStore
     /// Shared orchestration (PID resolution, port planning) — same logic the TUI uses.
     let coordinator: HarborCoordinator
+    /// "Keep Awake" switch: blocks idle system sleep while enabled.
+    let sleepGuard = SleepGuard()
 
     /// A single process the user asked to start while its port is held by a
     /// foreign process or another project's managed process.

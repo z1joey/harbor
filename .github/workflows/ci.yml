@@ -14,8 +14,10 @@ jobs:
   test:
     name: Tests
     # Pinned image (not macos-latest): the default Xcode moves with the
-    # runner image, and a surprise major bump would break the build here.
-    runs-on: macos-14
+    # runner image. macos-15's Xcode 16+ is required — xcodegen 2.46 writes
+    # objectVersion 77 project files, which Xcode 15.4 (macos-14's default)
+    # cannot read.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +59,7 @@ jobs:
     # on main and match MARKETING_VERSION — checked below.
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: write
     steps:
