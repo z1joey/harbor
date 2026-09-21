@@ -16,6 +16,7 @@
 		52DE7DD4A9B6F41FF8F09F00 /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFDFEA74EE77AA7880D952 /* LaunchAtLogin.swift */; };
 		829E4136C74F558EDCE1F37F /* ProjectsSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D180B88B23FF0570BE498A38 /* ProjectsSidebarView.swift */; };
 		8557CE63A5EDF65E7A28FEB3 /* ProjectConflictDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB56E0976E879E0757E7D567 /* ProjectConflictDialogs.swift */; };
+		9866930E6AB7F20238AFDE32 /* SleepGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116CD8103C9F8584EC956B04 /* SleepGuard.swift */; };
 		A8A7257B7E4F68A86E465979 /* HarborCore in Frameworks */ = {isa = PBXBuildFile; productRef = 98EA2D80A397ADC5AB7B6829 /* HarborCore */; };
 		AB38A37AECFD0424D87630E8 /* PortPoolEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E47162057A3DF3F68EE0A54 /* PortPoolEditorSheet.swift */; };
 		B45BB1E86956462C86D82D85 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013ED848CDB4FE949F6A3CA3 /* Support.swift */; };
@@ -26,6 +27,7 @@
 
 /* Begin PBXFileReference section */
 		013ED848CDB4FE949F6A3CA3 /* Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support.swift; sourceTree = "<group>"; };
+		116CD8103C9F8584EC956B04 /* SleepGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepGuard.swift; sourceTree = "<group>"; };
 		1B3BB63CADE100ED5B2F71AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1CF9540CC0A7007912151E46 /* PortsOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortsOverviewView.swift; sourceTree = "<group>"; };
 		2E47162057A3DF3F68EE0A54 /* PortPoolEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPoolEditorSheet.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 			children = (
 				B3CFDFEA74EE77AA7880D952 /* LaunchAtLogin.swift */,
 				C621A42B0248C08407662585 /* NotificationService.swift */,
+				116CD8103C9F8584EC956B04 /* SleepGuard.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -220,6 +223,7 @@
 				8557CE63A5EDF65E7A28FEB3 /* ProjectConflictDialogs.swift in Sources */,
 				05169522CE51D3213CAC8CFE /* ProjectDetailView.swift in Sources */,
 				829E4136C74F558EDCE1F37F /* ProjectsSidebarView.swift in Sources */,
+				9866930E6AB7F20238AFDE32 /* SleepGuard.swift in Sources */,
 				B45BB1E86956462C86D82D85 /* Support.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
