@@ -139,6 +139,37 @@ public enum PortPlanner {
             .sorted { $0.port != $1.port ? $0.port < $1.port : $0.projectName < $1.projectName }
     }
 
+    // MARK: - Claim gates (start time)
+
+    /// Start-time gate for `[[port_claim]]`s bound to the processes being
+    /// started. Runtime conflict detection deliberately ignores claims —
+    /// their holders are normally foreign infrastructure — so nothing else
+    /// guards them here: without this gate a stale container squatting on the
+    /// port lets `start` sail through and the launched process fails to
+    /// publish. Unbound claims are dependency declarations (a brew-services
+    /// postgres): being held is their healthy state, never a blocker.
+    /// Holders already owned by the same project are skipped.
+    public static func claimConflicts(forProject project: Project,
+                               startingProcesses: Set<String>,
+                               listeners: [Listener],
+                               managedHolder: (pid_t) -> ManagedHolder?) -> [RuntimeConflict] {
+        var conflicts: [RuntimeConflict] = []
+        for claim in project.portClaims.sorted(by: { $0.port < $1.port }) {
+            guard let bound = claim.processName, startingProcesses.contains(bound) else { continue }
+            guard let listener = listeners.first(where: { $0.port == claim.port }) else { continue }
+            let holder = managedHolder(listener.pid)
+            if let holder, holder.projectID == project.id { continue }
+            conflicts.append(RuntimeConflict(
+                projectID: project.id,
+                projectName: project.name,
+                port: claim.port,
+                processName: claim.processName,
+                listener: listener,
+                managedHolder: holder))
+        }
+        return conflicts
+    }
+
     // MARK: - Static overlaps
 
     /// Ports claimed by two or more projects, sorted by port.

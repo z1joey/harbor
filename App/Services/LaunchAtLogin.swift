@@ -9,6 +9,12 @@ enum LaunchAtLogin {
         SMAppService.mainApp.status == .enabled
     }
 
+    /// Registration succeeded but the user still has to approve the login
+    /// item in System Settings — `isEnabled` stays false until then.
+    static var requiresApproval: Bool {
+        SMAppService.mainApp.status == .requiresApproval
+    }
+
     static func setEnabled(_ enabled: Bool) -> Result<Void, HarborError> {
         do {
             if enabled {

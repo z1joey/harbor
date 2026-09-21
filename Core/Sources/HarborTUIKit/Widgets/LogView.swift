@@ -20,12 +20,17 @@ public struct LogView {
         scrollFromBottom = 0
     }
 
+    /// Leaves follow mode; `amount` lines stay hidden above the viewport.
     /// Returns true when follow mode changed (used to refresh the follow badge).
     @discardableResult
     public mutating func scrollUp(_ amount: Int = 1) -> Bool {
-        follow = false
+        if follow {
+            follow = false
+            scrollFromBottom = min(max(0, amount), max(0, lines.count - 1))
+            return true
+        }
         scrollFromBottom = min(scrollFromBottom + amount, max(0, lines.count - 1))
-        return true
+        return false
     }
 
     @discardableResult

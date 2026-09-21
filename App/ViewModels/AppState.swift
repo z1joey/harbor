@@ -21,6 +21,10 @@ final class AppState: ObservableObject {
     @Published var pendingConflict: PendingConflict?
     /// "Start all" for a project where at least one needed port is already held.
     @Published var pendingStartAllConflicts: PendingStartAllConflicts?
+    /// A start the user still has to confirm because a `[[port_claim]]` bound
+    /// to the process being started is already held (runtime conflict
+    /// detection ignores claims on purpose — this is the one-shot gate).
+    @Published var pendingClaimConflict: PendingClaimConflict?
     /// A kill-by-port the user still has to confirm (PID not managed by Harbor).
     @Published var pendingKill: PendingKill?
     @Published var lastKillError: String?
@@ -59,6 +63,16 @@ final class AppState: ObservableObject {
         var id: String { projectID }
     }
 
+    /// Held `[[port_claim]]`s for a start awaiting confirmation. `processName`
+    /// is nil when the whole project was about to start (start-all).
+    struct PendingClaimConflict: Identifiable {
+        let projectID: String
+        let projectName: String
+        let processName: String?
+        let items: [PortPlanner.RuntimeConflict]
+        var id: String { "\(projectID)::\(processName ?? "*")" }
+    }
+
     struct PendingKill: Identifiable {
         let listener: Listener
         var id: String { listener.id }
@@ -75,9 +89,8 @@ final class AppState: ObservableObject {
         portPoolStore = PortPoolStore()
         coordinator = HarborCoordinator(registry: registry, observer: portObserver,
                                         supervisor: supervisor, portPoolStore: portPoolStore)
-        supervisor.onAutoRestartGiveUp = { [weak self] key, message in
+        supervisor.onAutoRestartGiveUp = { _, message in
             NotificationService.notify(title: "Harbor: process keeps crashing", body: message)
-            _ = key
         }
         portObserver.start()
         Task { await portObserver.refresh() }
@@ -146,20 +159,56 @@ final class AppState: ObservableObject {
         return result
     }
 
+    /// Port verifications for every process of every project — one
+    /// process-table walk total (the popover renders all projects per frame;
+    /// per-project walks made that O(projects × table walk)).
+    func allPortVerifications() -> [ProcessKey: PortVerification] {
+        let processTable = ProcessKiller.processTable()
+        let listeners = portObserver.listeners
+        var result: [ProcessKey: PortVerification] = [:]
+        for project in registry.projects {
+            for definition in project.processes {
+                let key = ProcessKey(projectID: project.id, processName: definition.name)
+                if let verification = PortPlanner.portVerification(
+                    status: supervisor.status(for: key),
+                    definitionPort: definition.port,
+                    listeners: listeners,
+                    processTable: processTable
+                ) {
+                    result[key] = verification
+                }
+            }
+        }
+        return result
+    }
+
     // MARK: - Process actions
 
-    func start(project: Project, definition: ProcessDefinition, force: Bool = false) {
+    @discardableResult
+    func start(project: Project, definition: ProcessDefinition, force: Bool = false) -> Result<Void, HarborError> {
         let key = ProcessKey(projectID: project.id, processName: definition.name)
-        if !force, let port = definition.port {
-            let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
-                                                 managedHolder: { pid in self.managedHolder(forPID: pid) })
-            if let conflict = blockers.first(where: { $0.port == port }) {
-                pendingConflict = PendingConflict(key: key, from: conflict)
-                return
+        if !force {
+            let managedHolder = { (pid: pid_t) in self.managedHolder(forPID: pid) }
+            if let port = definition.port {
+                let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
+                                                     managedHolder: managedHolder)
+                if let conflict = blockers.first(where: { $0.port == port }) {
+                    pendingConflict = PendingConflict(key: key, from: conflict)
+                    return .success(())
+                }
+            }
+            let claimBlockers = PortPlanner.claimConflicts(forProject: project,
+                                                           startingProcesses: [definition.name],
+                                                           listeners: portObserver.listeners,
+                                                           managedHolder: managedHolder)
+            if !claimBlockers.isEmpty {
+                pendingClaimConflict = PendingClaimConflict(projectID: project.id, projectName: project.name,
+                                                            processName: definition.name, items: claimBlockers)
+                return .success(())
             }
         }
         NotificationService.requestAuthorizationIfNeeded()
-        supervisor.start(key: key, definition: definition, projectRoot: project.root, userInitiated: true)
+        return supervisor.start(key: key, definition: definition, projectRoot: project.root, userInitiated: true)
     }
 
     func confirmPendingConflict() {
@@ -167,9 +216,26 @@ final class AppState: ObservableObject {
         pendingConflict = nil
         guard let project = registry.projects.first(where: { $0.id == conflict.key.projectID }),
               let definition = project.processes.first(where: { $0.name == conflict.key.processName }) else { return }
-        NotificationService.notify(title: "Harbor: started despite port conflict",
-                                   body: "\"\(definition.name)\" started even though port \(conflict.port) is in use by \(conflict.owner) (PID \(conflict.pid)).")
-        start(project: project, definition: definition, force: true)
+        // TUI parity: accepting the held runtime port still runs the claim
+        // gate (minus the port the user just decided to tolerate).
+        let claimBlockers = PortPlanner.claimConflicts(forProject: project,
+                                                       startingProcesses: [definition.name],
+                                                       listeners: portObserver.listeners,
+                                                       managedHolder: { pid in self.managedHolder(forPID: pid) })
+            .filter { $0.port != conflict.port }
+        if !claimBlockers.isEmpty {
+            pendingClaimConflict = PendingClaimConflict(projectID: project.id, projectName: project.name,
+                                                        processName: definition.name, items: claimBlockers)
+            return
+        }
+        NotificationService.requestAuthorizationIfNeeded()
+        switch supervisor.start(key: conflict.key, definition: definition, projectRoot: project.root, userInitiated: true) {
+        case .success:
+            NotificationService.notify(title: "Harbor: started despite port conflict",
+                                       body: "\"\(definition.name)\" started even though port \(conflict.port) is in use by \(conflict.owner) (PID \(conflict.pid)).")
+        case .failure(let error):
+            NotificationService.notify(title: "Harbor: failed to start \"\(definition.name)\"", body: error.message)
+        }
     }
 
     func cancelPendingConflict() {
@@ -185,11 +251,34 @@ final class AppState: ObservableObject {
               let definition = project.processes.first(where: { $0.name == pending.key.processName }) else { return }
         NotificationService.requestAuthorizationIfNeeded()
         Task {
+            // The dialog may have sat open while the situation moved on:
+            // only kill a foreign PID that still holds the port (guards
+            // against a reused PID).
+            if pending.holder == nil,
+               !portObserver.listeners.contains(where: { $0.pid == pending.pid && $0.port == pending.port }) {
+                start(project: project, definition: definition, force: true)
+                return
+            }
             guard await freePortHolder(managedHolder: pending.holder, pid: pending.pid) else { return }
             await portObserver.refresh()
-            start(project: project, definition: definition, force: true)
-            NotificationService.notify(title: "Harbor: port \(pending.port) freed",
-                                       body: "Port \(pending.port) was freed and \"\(definition.name)\" started.")
+            // TUI parity: freeing the runtime port still runs the claim gate.
+            let claimBlockers = PortPlanner.claimConflicts(forProject: project,
+                                                           startingProcesses: [definition.name],
+                                                           listeners: portObserver.listeners,
+                                                           managedHolder: { pid in self.managedHolder(forPID: pid) })
+                .filter { $0.port != pending.port }
+            if !claimBlockers.isEmpty {
+                pendingClaimConflict = PendingClaimConflict(projectID: project.id, projectName: project.name,
+                                                            processName: definition.name, items: claimBlockers)
+                return
+            }
+            switch start(project: project, definition: definition, force: true) {
+            case .success:
+                NotificationService.notify(title: "Harbor: port \(pending.port) freed",
+                                           body: "Port \(pending.port) was freed and \"\(definition.name)\" started.")
+            case .failure(let error):
+                NotificationService.notify(title: "Harbor: failed to start \"\(definition.name)\"", body: error.message)
+            }
         }
     }
 
@@ -229,15 +318,38 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// "Start all anyway": the user accepted every runtime conflict, so the
+    /// blocked processes start instead of being skipped. Held `[[port_claim]]`s
+    /// are a different gate and still apply — `startProject` keeps it unless
+    /// `force` (same chaining as the TUI's "start all anyway").
     func confirmPendingStartAllConflicts() {
         guard let pending = pendingStartAllConflicts else { return }
         pendingStartAllConflicts = nil
         guard let project = registry.projects.first(where: { $0.id == pending.projectID }) else { return }
-        startProject(project)
+        startProject(project, forceConflicts: true)
     }
 
     func cancelPendingStartAllConflicts() {
         pendingStartAllConflicts = nil
+    }
+
+    /// Confirms a held-`[[port_claim]]` prompt: starts the process (or the
+    /// whole project) with `force`, so both gates stay bypassed — the user
+    /// explicitly accepted every blocker on the way here.
+    func confirmPendingClaimConflict() {
+        guard let pending = pendingClaimConflict else { return }
+        pendingClaimConflict = nil
+        guard let project = registry.projects.first(where: { $0.id == pending.projectID }) else { return }
+        if let processName = pending.processName,
+           let definition = project.processes.first(where: { $0.name == processName }) {
+            start(project: project, definition: definition, force: true)
+        } else {
+            startProject(project, force: true)
+        }
+    }
+
+    func cancelPendingClaimConflict() {
+        pendingClaimConflict = nil
     }
 
     /// "Free the ports, then start all": stop/kill every holder, refresh the
@@ -253,21 +365,59 @@ final class AppState: ObservableObject {
                                          pid: conflict.listener.pid)
             }
             await portObserver.refresh()
+            // TUI parity: freeing the runtime ports still runs the claim gate.
+            let accepted = Set(pending.items.map(\.port))
+            let pendingNames = Set(project.processes.compactMap { definition -> String? in
+                let state = supervisor.status(for: ProcessKey(projectID: project.id, processName: definition.name)).state
+                return (!state.isRunningLike && state != .stopping) ? definition.name : nil
+            })
+            let claimBlockers = PortPlanner.claimConflicts(forProject: project,
+                                                           startingProcesses: pendingNames,
+                                                           listeners: portObserver.listeners,
+                                                           managedHolder: { pid in self.managedHolder(forPID: pid) })
+                .filter { !accepted.contains($0.port) }
+            if !claimBlockers.isEmpty {
+                pendingClaimConflict = PendingClaimConflict(projectID: project.id, projectName: project.name,
+                                                            processName: nil, items: claimBlockers)
+                return
+            }
             startProject(project, force: true)
         }
     }
 
     /// Starts every stopped/failed process in the project (sequential is fine).
-    /// With `force`, blocked processes start anyway instead of being skipped.
-    func startProject(_ project: Project, force: Bool = false) {
+    /// `forceConflicts`: processes whose port is held start anyway instead of
+    /// being skipped (the user accepted the conflicts); the claim gate still
+    /// applies. `force`: everything starts — used after a claim confirmation,
+    /// when the user has accepted every blocker on the way here.
+    func startProject(_ project: Project, forceConflicts: Bool = false, force: Bool = false) {
         NotificationService.requestAuthorizationIfNeeded()
+        let managedHolder = { (pid: pid_t) in self.managedHolder(forPID: pid) }
         let blockers = PortPlanner.conflicts(forProject: project, listeners: portObserver.listeners,
-                                             managedHolder: { pid in self.managedHolder(forPID: pid) })
+                                             managedHolder: managedHolder)
+        var pendingNames = Set<String>()
+        for definition in project.processes {
+            let state = supervisor.status(for: ProcessKey(projectID: project.id, processName: definition.name)).state
+            if !state.isRunningLike, state != .stopping {
+                pendingNames.insert(definition.name)
+            }
+        }
+        if !force, !pendingNames.isEmpty {
+            let claimBlockers = PortPlanner.claimConflicts(forProject: project,
+                                                           startingProcesses: pendingNames,
+                                                           listeners: portObserver.listeners,
+                                                           managedHolder: managedHolder)
+            if !claimBlockers.isEmpty {
+                pendingClaimConflict = PendingClaimConflict(projectID: project.id, projectName: project.name,
+                                                            processName: nil, items: claimBlockers)
+                return
+            }
+        }
         for definition in project.processes {
             let key = ProcessKey(projectID: project.id, processName: definition.name)
             let state = supervisor.status(for: key).state
             guard !state.isRunningLike, state != .stopping else { continue }
-            if let port = definition.port, !force,
+            if let port = definition.port, !forceConflicts, !force,
                let conflict = blockers.first(where: { $0.port == port }) {
                 supervisor.logBuffer(for: key).appendLine(
                     "— Harbor: not starting, port \(port) is held by \(conflict.holderLabel) (PID \(conflict.listener.pid)) —")
@@ -285,6 +435,10 @@ final class AppState: ObservableObject {
         Task {
             let key = ProcessKey(projectID: project.id, processName: definition.name)
             await supervisor.stop(key: key)
+            // The ~2s listener snapshot still shows the dead process's port —
+            // refresh so the start gates don't pop a stale conflict dialog
+            // against the process we just stopped.
+            await portObserver.refresh()
             if let fresh = registry.projects.first(where: { $0.id == project.id }) {
                 start(project: fresh, definition: definition)
             }
@@ -355,7 +509,23 @@ final class AppState: ObservableObject {
 
     // MARK: - Projects
 
+    private var lastConfigFingerprint: String?
+
+    /// Cheap refresh on window focus. `didBecomeKey` fires for every key
+    /// window (popover, dialogs) — reparse only when the central directory
+    /// actually changed since the last load.
     func reloadConfigsIfStale() {
+        let key = URLResourceKey.contentModificationDateKey
+        let files = ((try? FileManager.default.contentsOfDirectory(
+            at: registry.centralDirectory, includingPropertiesForKeys: [key])) ?? [])
+            .filter { $0.pathExtension == "toml" && !$0.lastPathComponent.hasPrefix(".") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let fingerprint = files.map { url -> String in
+            let mtime = (try? url.resourceValues(forKeys: [key]))?.contentModificationDate?.timeIntervalSince1970 ?? 0
+            return "\(url.lastPathComponent):\(mtime)"
+        }.joined(separator: "|")
+        guard fingerprint != lastConfigFingerprint else { return }
+        lastConfigFingerprint = fingerprint
         registry.reloadAll()
     }
 
@@ -365,7 +535,13 @@ final class AppState: ObservableObject {
         switch LaunchAtLogin.setEnabled(enabled) {
         case .success:
             launchAtLoginEnabled = LaunchAtLogin.isEnabled
-            launchAtLoginError = nil
+            if enabled, LaunchAtLogin.requiresApproval {
+                // Registered but pending user approval — without this note
+                // the Toggle just snaps back to off with no explanation.
+                launchAtLoginError = "Registered — approve Harbor under System Settings → General → Login Items to finish enabling launch at login."
+            } else {
+                launchAtLoginError = nil
+            }
         case .failure(let error):
             launchAtLoginEnabled = LaunchAtLogin.isEnabled
             launchAtLoginError = error.message

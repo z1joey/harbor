@@ -5,10 +5,7 @@ import HarborCore
 /// Crash / port-conflict notifications. Fails soft: if the user denies
 /// permission, calls simply do nothing.
 enum NotificationService {
-    private static var authorizationRequested = false
-
     static func requestAuthorizationIfNeeded() {
-        authorizationRequested = true
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .notDetermined else { return }

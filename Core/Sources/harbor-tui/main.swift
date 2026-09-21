@@ -14,22 +14,19 @@ struct HarborTUI: ParsableCommand {
     func run() throws {
         // TuiApp is main-actor isolated; hop there and hand control to GCD's
         // main queue, which drains both the repaint timer and actor tasks.
-        final class StartupFailure: @unchecked Sendable { var message: String? }
-        let startupFailure = StartupFailure()
         Task { @MainActor in
             do {
                 let app = try TuiApp()
                 _ = app // strong ref kept in TuiApp.current; exit happens inside TuiApp
             } catch {
-                startupFailure.message = error.localizedDescription
+                // Startup failed (no TTY, …): there is no terminal session to
+                // restore, and dispatchMain would park us forever with the
+                // error unheard — report and bail out now.
+                FileHandle.standardError.write(Data("harbor-tui: \(error.localizedDescription)\n".utf8))
+                Foundation.exit(1)
             }
         }
         dispatchMain()
-        // Unreachable (dispatchMain never returns); kept for clarity.
-        if let message = startupFailure.message {
-            FileHandle.standardError.write(Data("harbor-tui: \(message)\n".utf8))
-            Foundation.exit(1)
-        }
     }
 }
 

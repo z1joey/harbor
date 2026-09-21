@@ -13,15 +13,31 @@ concurrency:
 jobs:
   test:
     name: Tests
-    runs-on: macos-latest
+    # Pinned image (not macos-latest): the default Xcode moves with the
+    # runner image. macos-15's Xcode 16+ is required — xcodegen 2.46 writes
+    # objectVersion 77 project files, which Xcode 15.4 (macos-14's default)
+    # cannot read.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: Core/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Core/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
 
       - name: Install XcodeGen
         run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
 
       - name: Generate project
         run: xcodegen generate
+
+      # The generated project is committed — fail when it drifted from
+      # project.yml (a contributor forgot to regenerate).
+      - name: Check generated project is in sync
+        run: git diff --exit-code Harbor.xcodeproj
 
       - name: Run HarborCore tests (SwiftPM)
         working-directory: Core
@@ -43,7 +59,7 @@ jobs:
     # on main and match MARKETING_VERSION — checked below.
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: write
     steps:
@@ -86,7 +102,10 @@ jobs:
             exit 1
           fi
           APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
-          if [[ "$APP_VERSION" != "$VERSION" && "$APP_VERSION" != '$(MARKETING_VERSION)' ]]; then
+          # An unexpanded "$(MARKETING_VERSION)" placeholder means the build
+          # config silently lost the version — that is exactly what this
+          # check exists to catch, so it is a hard failure, not an escape.
+          if [[ "$APP_VERSION" != "$VERSION" ]]; then
             echo "::error::Built app version $APP_VERSION does not match MARKETING_VERSION $VERSION."
             exit 1
           fi

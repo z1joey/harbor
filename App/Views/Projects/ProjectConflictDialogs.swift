@@ -1,11 +1,13 @@
 import SwiftUI
 import HarborCore
 
-/// Confirmation dialogs for port conflicts (single process + start-all),
-/// scoped to a project when `projectID` is given. Shared by the popover,
-/// the project detail view, and every start flow. Each dialog offers the
-/// three ways out: free the port (stop the managed holder or kill the
-/// foreign process tree), start anyway, or cancel.
+/// Confirmation dialogs for port conflicts (single process, start-all, and
+/// held `[[port_claim]]`s), scoped to a project when `projectID` is given.
+/// Mounted on the project detail view; the menubar popover renders the same
+/// pendings inline instead (system dialogs cannot present from a
+/// MenuBarExtra window). Only one dialog presents at a time — priority:
+/// single-process conflict, start-all, claim — the next one appears as soon
+/// as the current resolves.
 struct ProjectConflictDialogs: ViewModifier {
     @EnvironmentObject private var appState: AppState
     var projectID: String?
@@ -16,7 +18,14 @@ struct ProjectConflictDialogs: ViewModifier {
     }
 
     private var startAllVisible: Bool {
+        guard !conflictVisible else { return false } // one dialog at a time
         guard let pending = appState.pendingStartAllConflicts else { return false }
+        return projectID == nil || pending.projectID == projectID
+    }
+
+    private var claimVisible: Bool {
+        guard !conflictVisible, !startAllVisible else { return false }
+        guard let pending = appState.pendingClaimConflict else { return false }
         return projectID == nil || pending.projectID == projectID
     }
 
@@ -58,6 +67,31 @@ struct ProjectConflictDialogs: ViewModifier {
             } message: { pending in
                 Text(pending.items.map { Self.message(for: $0) }.joined(separator: "\n"))
             }
+            .confirmationDialog(
+                "Port in use",
+                isPresented: Binding(
+                    get: { claimVisible },
+                    set: { if !$0 { appState.cancelPendingClaimConflict() } }
+                ),
+                presenting: claimVisible ? appState.pendingClaimConflict : nil
+            ) { pending in
+                Button(Self.claimButtonTitle(for: pending), role: .destructive) {
+                    appState.confirmPendingClaimConflict()
+                }
+                Button("Cancel", role: .cancel) { appState.cancelPendingClaimConflict() }
+            } message: { pending in
+                Text(pending.items.map { Self.message(for: $0) }.joined(separator: "\n"))
+            }
+    }
+
+    /// Held `[[port_claim]]`s get no "free the port" escape: their holder is
+    /// normally infrastructure (e.g. com.docker.backend) that must not be
+    /// killed — the user decides between starting anyway and cancelling.
+    private static func claimButtonTitle(for pending: AppState.PendingClaimConflict) -> String {
+        if let processName = pending.processName {
+            return "Start \"\(processName)\" anyway"
+        }
+        return "Start all anyway"
     }
 
     private static func freeButtonTitle(for pending: AppState.PendingConflict) -> String {

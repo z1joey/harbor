@@ -41,6 +41,35 @@ final class KeyParsingTests: XCTestCase {
         XCTAssertEqual(keys([0x1B, UInt8(ascii: "x")]), [.escape, .char("x")])
     }
 
+    func testUnsupportedCompleteSequencesResyncOnEscape() {
+        // Complete but unrecognized sequences (Forward Delete ESC[3~,
+        // Insert ESC[2~, Shift+Tab ESC[Z) must not stall the parser: the
+        // ESC is delivered and the tail reparsed as plain characters.
+        XCTAssertEqual(keys(Array("\u{1B}[3~".utf8)), [.escape, .char("["), .char("3"), .char("~")])
+        XCTAssertEqual(keys(Array("\u{1B}[2~".utf8)), [.escape, .char("["), .char("2"), .char("~")])
+        XCTAssertEqual(keys(Array("\u{1B}[Z".utf8)), [.escape, .char("["), .char("Z")])
+    }
+
+    func testKeysAfterUnsupportedSequenceStillParse() {
+        // Regression: an unsupported sequence used to buffer every later
+        // keypress behind it forever — q and Ctrl+C included.
+        var parser = KeyParser()
+        _ = parser.feed(Array("\u{1B}[3~".utf8))
+        XCTAssertEqual(parser.feed(Array("q".utf8)), [.char("q")])
+        XCTAssertEqual(parser.feed([0x03]), [.ctrl("c")])
+        XCTAssertEqual(parser.feed(Array("\u{1B}[A".utf8)), [.up])
+    }
+
+    func testMalformedEscapeEventuallyFlushes() {
+        var parser = KeyParser()
+        // ESC [ followed by non-CSI bytes: waits briefly, then flushes.
+        var bytes: [UInt8] = [0x1B, 0x5B, 0x00]
+        bytes.append(contentsOf: Array(repeating: UInt8(ascii: "q"), count: 40))
+        XCTAssertFalse(parser.feed(bytes).isEmpty)
+        // And the parser stays usable afterwards.
+        XCTAssertEqual(parser.feed(Array("\u{1B}[A".utf8)), [.up])
+    }
+
     func testSequenceSplitAcrossFeeds() {
         // Lone ESC at the end of a drained read is the Esc key (see parser policy).
         var parser = KeyParser()

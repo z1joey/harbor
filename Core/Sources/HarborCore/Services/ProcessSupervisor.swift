@@ -127,6 +127,7 @@ public final class ProcessSupervisor: ObservableObject {
         managed.exitCode = nil
         managed.ready = resolvedReadyURL != nil ? false : nil
         managed.userInitiatedStop = false
+        managed.stoppedDeliberately = false
         managed.startedAt = Date()
         managed.process = process
         managed.pid = nil
@@ -179,6 +180,7 @@ public final class ProcessSupervisor: ObservableObject {
         }
         managed.state = .stopping
         managed.userInitiatedStop = true
+        managed.stoppedDeliberately = true
         cancelHelperTasks(managed)
         publish(managed)
 
@@ -247,7 +249,11 @@ public final class ProcessSupervisor: ObservableObject {
             managed.restartAttempts = 0
         }
 
-        if managed.userInitiatedStop || managed.state == .stopping {
+        // stoppedDeliberately covers the race where stop()'s safety net ran
+        // finishStop first (clearing userInitiatedStop and .stopping) before
+        // this handler was observed — without it the user's stop would be
+        // misreported as a crash and auto-restart would resurrect the tree.
+        if managed.userInitiatedStop || managed.state == .stopping || managed.stoppedDeliberately {
             finishStop(managed, exitCode: exitCode)
             return
         }
@@ -364,6 +370,9 @@ private final class ManagedProcess {
     var restartAttempts = 0
     var startedAt: Date?
     var userInitiatedStop = false
+    /// Set when the user asked for this stop; survives finishStop so a late
+    /// terminationHandler still recognizes the stop. Cleared on the next start.
+    var stoppedDeliberately = false
     var healthTask: Task<Void, Never>?
     var restartTask: Task<Void, Never>?
 
@@ -376,7 +385,11 @@ private final class ManagedProcess {
 }
 
 /// Splits a byte stream into lines from arbitrary chunks (pipe reader callback).
-final class LineForker {
+/// Thread-safe: feed() runs on the pipe's reader queue and again from
+/// drainPipes' cleanup block, which can overlap at process exit — the internal
+/// lock makes it Sendable.
+final class LineForker: @unchecked Sendable {
+    private let lock = NSLock()
     private var pending = Data()
     private let onLine: (String) -> Void
 
@@ -385,23 +398,47 @@ final class LineForker {
     }
 
     func feed(_ data: Data) {
+        let completed: [String]
+        let forced: String?
+        lock.lock()
         pending.append(data)
+        var collected: [String] = []
         while let newline = pending.firstIndex(of: 0x0A) {
             let lineData = pending.subdata(in: pending.startIndex..<newline)
             pending.removeSubrange(pending.startIndex...newline)
-            onLine(Self.decode(lineData))
+            collected.append(Self.decode(lineData))
         }
         if pending.count > 65_536 {
-            onLine(Self.decode(pending))
+            forced = Self.decode(pending)
             pending.removeAll()
+        } else {
+            forced = nil
+        }
+        completed = collected
+        lock.unlock()
+        // Callbacks outside the lock: they append into LogBuffer, which has
+        // its own lock.
+        for line in completed {
+            onLine(line)
+        }
+        if let forced {
+            onLine(forced)
         }
     }
 
     func flush() {
-        guard !pending.isEmpty else { return }
-        let rest = pending
-        pending.removeAll()
-        onLine(Self.decode(rest))
+        let rest: String?
+        lock.lock()
+        if pending.isEmpty {
+            rest = nil
+        } else {
+            rest = Self.decode(pending)
+            pending.removeAll()
+        }
+        lock.unlock()
+        if let rest {
+            onLine(rest)
+        }
     }
 
     private static func decode(_ data: Data) -> String {

@@ -5,13 +5,13 @@
 # acceptance checklists) — kept local, never committed.
 .zcode/
 .cursor/plans/
-docs/
+/docs/
 
 # Xcode / Swift
 DerivedData/
 xcuserdata/
 *.xcuserstate
-build/
+/build/
 .build/
 .swiftpm/
 

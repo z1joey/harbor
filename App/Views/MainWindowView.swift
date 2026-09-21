@@ -53,6 +53,20 @@ struct MainWindowView: View {
         } message: {
             Text(appState.launchAtLoginError ?? "")
         }
+        // Hosted here so kill failures from every flow (project detail,
+        // start-conflict "free & start", popover) are visible — they used to
+        // be surfaced only on the two Ports views.
+        .alert(
+            "Could not kill process",
+            isPresented: Binding(
+                get: { appState.lastKillError != nil },
+                set: { if !$0 { appState.lastKillError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(appState.lastKillError ?? "")
+        }
     }
 
     private var windowKeyPublisher: NotificationCenter.Publisher {

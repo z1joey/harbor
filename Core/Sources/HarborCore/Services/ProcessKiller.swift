@@ -34,6 +34,38 @@ public enum ProcessKiller {
         return errno == EPERM
     }
 
+    /// Kernel start time of `pid` (seconds since epoch), used to detect PID
+    /// reuse between a snapshot and a later signal. Nil when it cannot be
+    /// determined (process gone, or sysctl failed) — callers then keep the
+    /// old behavior instead of skipping the kill.
+    static func startTime(of pid: pid_t) -> TimeInterval? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var proc = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, 4, &proc, &size, nil, 0) == 0,
+              size >= MemoryLayout<kinfo_proc>.stride else { return nil }
+        let tv = proc.kp_proc.p_starttime
+        return TimeInterval(tv.tv_sec) + TimeInterval(tv.tv_usec) / 1_000_000
+    }
+
+    /// Start times for a set of target PIDs, taken as one snapshot.
+    private static func startTimes(of pids: [pid_t]) -> [pid_t: TimeInterval] {
+        var result: [pid_t: TimeInterval] = [:]
+        for pid in pids {
+            if let start = startTime(of: pid) {
+                result[pid] = start
+            }
+        }
+        return result
+    }
+
+    /// True when `pid` is still the same process the snapshot saw (or the
+    /// snapshot has no record and we can't tell).
+    private static func isSameProcess(_ pid: pid_t, snapshot: [pid_t: TimeInterval]) -> Bool {
+        guard let snapped = snapshot[pid] else { return true }
+        return startTime(of: pid) == snapped
+    }
+
     /// Snapshot of every process as (pid, parent pid).
     public static func processTable() -> [(pid: pid_t, ppid: pid_t)] {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
@@ -65,10 +97,14 @@ public enum ProcessKiller {
     }
 
     /// TERM the whole tree, wait up to `grace` seconds, KILL whatever survives.
-    /// Fails only if the root process itself could not be signaled (e.g. permission denied).
+    /// Fails only if the root process itself could not be signaled (e.g.
+    /// permission denied); a root that is already gone counts as success.
+    /// KILL is withheld from a PID whose kernel start time no longer matches
+    /// the snapshot — the original target exited and the PID was reused.
     public static func terminateTree(rootPID: pid_t, grace: TimeInterval = 2.0) async -> Result<Void, KillError> {
         let table = processTable()
         let targets = Array(descendants(of: rootPID, in: table)) + [rootPID]
+        let snapshot = startTimes(of: targets)
 
         var rootError: KillError?
         for pid in targets {
@@ -78,6 +114,7 @@ public enum ProcessKiller {
         }
         if rootError != nil, targets.count == 1 {
             // Root didn't even take TERM; nothing else to do.
+            if case .notRunning = rootError! { return .success(()) }
             return .failure(rootError!)
         }
 
@@ -87,10 +124,15 @@ public enum ProcessKiller {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         for pid in targets where isAlive(pid) {
-            _ = send(SIGKILL, to: pid)
+            if isSameProcess(pid, snapshot: snapshot) {
+                _ = send(SIGKILL, to: pid)
+            }
         }
         try? await Task.sleep(nanoseconds: 200_000_000)
-        if let rootError { return .failure(rootError) }
+        if let rootError {
+            if case .notRunning = rootError { return .success(()) }
+            return .failure(rootError)
+        }
         return .success(())
     }
 
@@ -98,6 +140,7 @@ public enum ProcessKiller {
     public static func emergencyStop(rootPID: pid_t, grace: TimeInterval = 1.0) {
         let table = processTable()
         let targets = Array(descendants(of: rootPID, in: table)) + [rootPID]
+        let snapshot = startTimes(of: targets)
         for pid in targets {
             _ = send(SIGTERM, to: pid)
         }
@@ -107,7 +150,9 @@ public enum ProcessKiller {
             usleep(80_000)
         }
         for pid in targets where isAlive(pid) {
-            _ = send(SIGKILL, to: pid)
+            if isSameProcess(pid, snapshot: snapshot) {
+                _ = send(SIGKILL, to: pid)
+            }
         }
     }
 }

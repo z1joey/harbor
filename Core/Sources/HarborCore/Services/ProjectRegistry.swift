@@ -47,6 +47,7 @@ public final class ProjectRegistry: ObservableObject {
 
     public func load() {
         projects = Self.flagDuplicateRoots(centralConfigURLs().map(buildProject))
+        pruneWatchers()
         restartWatchers()
         restartDirectoryWatcher()
     }
@@ -58,6 +59,7 @@ public final class ProjectRegistry: ObservableObject {
         let reloaded = Self.flagDuplicateRoots(centralConfigURLs().map(buildProject))
         guard reloaded != projects else { return }
         projects = reloaded
+        pruneWatchers()
         restartWatchers()
     }
 
@@ -99,6 +101,7 @@ public final class ProjectRegistry: ObservableObject {
     public func reloadAll() {
         guard !projects.isEmpty else { return }
         projects = Self.flagDuplicateRoots(centralConfigURLs().map(buildProject))
+        pruneWatchers()
         restartWatchers()
     }
 
@@ -111,6 +114,19 @@ public final class ProjectRegistry: ObservableObject {
     }
 
     // MARK: - Config watching
+
+    /// Cancels the per-file watchers (and pending debounces) of projects
+    /// that are no longer in the registry — unregistration deletes their
+    /// config files, and nothing else would ever release those fds.
+    private func pruneWatchers() {
+        let liveIDs = Set(projects.map(\.id))
+        for staleID in fileWatchers.keys where !liveIDs.contains(staleID) {
+            fileWatchers[staleID]?.cancel()
+            fileWatchers.removeValue(forKey: staleID)
+            reloadDebounce[staleID]?.cancel()
+            reloadDebounce.removeValue(forKey: staleID)
+        }
+    }
 
     private func restartWatchers() {
         for project in projects {

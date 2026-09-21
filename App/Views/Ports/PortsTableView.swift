@@ -8,6 +8,7 @@ struct PortsTableView: View {
     @State private var mineOnly = false
     @State private var selection = Set<Listener.ID>()
     @State private var copyFeedback: String?
+    @State private var copyFeedbackTask: Task<Void, Never>?
 
     private var filtered: [Listener] {
         let query = filter.trimmingCharacters(in: .whitespaces).lowercased()
@@ -64,17 +65,6 @@ struct PortsTableView: View {
             Button("Cancel", role: .cancel) { appState.cancelPendingKill() }
         } message: { pending in
             Text("Send SIGTERM to PID \(pending.listener.pid) — \(pending.listener.processName). If it ignores SIGTERM, Harbor sends SIGKILL after ~2 seconds.")
-        }
-        .alert(
-            "Could not kill process",
-            isPresented: Binding(
-                get: { appState.lastKillError != nil },
-                set: { if !$0 { appState.lastKillError = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(appState.lastKillError ?? "")
         }
     }
 
@@ -241,9 +231,11 @@ struct PortsTableView: View {
     }
 
     private func flash(_ text: String) {
-        copyFeedback = text
-        Task {
+        // Cancel the previous clear so a second copy isn't wiped early.
+        copyFeedbackTask?.cancel()
+        copyFeedbackTask = Task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
             copyFeedback = nil
         }
     }

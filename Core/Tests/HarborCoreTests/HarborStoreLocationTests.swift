@@ -192,6 +192,25 @@ final class HarborStoreLocationTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: central.path).sorted(), afterFirst)
     }
 
+    func testConfigMigrationRunsOnceEvenWhenImportIsUnparseable() throws {
+        // A legacy config whose imported central file can never parse must
+        // not be re-imported on every launch (the `<slug>-2.toml` pile-up).
+        central = target.appendingPathComponent("projects", isDirectory: true)
+        rootA = try makeLegacyRoot("broken", configText: "port = \"auto\"\ncommand = \"x\"")
+        registryURL = target.appendingPathComponent("projects.json")
+        try writeRegistry([rootA], at: registryURL)
+
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+        HarborStoreLocation.migrateLegacyConfigsIfNeeded(legacyRegistry: registryURL,
+                                                         legacyAppSupport: legacy, central: central)
+
+        let tomls = (try FileManager.default.contentsOfDirectory(atPath: central.path))
+            .filter { $0.hasSuffix(".toml") }
+        // Exactly one import — no `…-2.toml` pile-up from repeated launches.
+        XCTAssertEqual(tomls.count, 1)
+    }
+
     func testCentralConfigMigrationHonorsExistingCentralFiles() throws {
         central = target.appendingPathComponent("projects", isDirectory: true)
         rootA = try makeLegacyRoot("steward")

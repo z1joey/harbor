@@ -1,5 +1,24 @@
 import Foundation
 
+/// Thread-safe append-only byte accumulator, shared between a pipe's
+/// readabilityHandler queue and the waiting reader thread.
+final class PipeBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    var value: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
+}
+
 /// Polls the system for listening TCP ports via `lsof` on a background queue
 /// (~every 2 seconds) and publishes a deduplicated snapshot on the main actor.
 @MainActor
@@ -177,16 +196,33 @@ public final class PortObserver: ObservableObject {
         } catch {
             return .failure(HarborError(error.localizedDescription))
         }
+        // Drain stderr concurrently (readabilityHandler) while stdout blocks:
+        // a child that fills the stderr pipe buffer would otherwise deadlock
+        // the sequential read order.
+        let errData = PipeBuffer()
+        stderr.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            errData.append(chunk)
+        }
         let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        stderr.fileHandleForReading.readabilityHandler = nil
+        // The child has exited, so the pipe is at EOF; pick up anything the
+        // handler hadn't consumed yet.
+        if let rest = try? stderr.fileHandleForReading.readToEnd() {
+            errData.append(rest)
+        }
         let output = String(decoding: outData, as: UTF8.self)
         let exitCode = process.terminationStatus
         // lsof exits 1 when nothing matched — that's an empty snapshot, not a failure.
         if exitCode == 0 || (exitCode == 1 && output.isEmpty) {
             return .success(output)
         }
-        let errText = String(decoding: errData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let errText = String(decoding: errData.value, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return .failure(HarborError(errText.isEmpty ? "exit status \(exitCode)" : errText))
     }
 }

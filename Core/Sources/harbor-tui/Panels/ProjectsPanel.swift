@@ -46,7 +46,7 @@ struct ProjectsPanel {
                 let key = ProcessKey(projectID: project.id, processName: definition.name)
                 let status = statuses[key] ?? ProcessStatus()
                 var info = ""
-                if let conflict = conflictsByProcess[definition.name] {
+                if let conflict = conflictsByProcess["\(project.id)::\(definition.name)"] {
                     info = "⚠ port held by \(conflict.holderLabel)"
                 } else if let verification = verifications[key] {
                     info = "⚠ listening on \(verification.observed.sorted().map(String.init).joined(separator: ", ")), expected \(verification.expected)"

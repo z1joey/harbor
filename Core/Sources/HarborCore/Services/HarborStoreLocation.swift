@@ -43,6 +43,12 @@ public enum HarborStoreLocation {
     /// and the grant cannot persist for such builds.
     public static let legacyMigrationMarkerName = ".legacy-migration-done"
 
+    /// Written into the harbor root after the first central-config import
+    /// pass. Without it, a root whose config imports into an unparseable
+    /// central file (bad legacy TOML, relative root, write failure) would be
+    /// re-imported on every launch, piling up `<slug>-2.toml`, `-3.toml`, …
+    public static let configMigrationMarkerName = ".config-migration-done"
+
     /// One-time move of the legacy Application Support stores into
     /// `~/.harbor`. Files already in `~/.harbor` always win (the skill may
     /// have created them); when two frontends race, the loser's move is a
@@ -82,14 +88,21 @@ public enum HarborStoreLocation {
     /// — if any — is copied in with a `root = "/abs/path"` key injected.
     ///
     /// Existing central files always win; the legacy registry and the root
-    /// configs are never modified or deleted. Idempotent: a second run is a
-    /// no-op because the imported files now declare the roots.
+    /// configs are never modified or deleted. Strictly one-shot: after the
+    /// first pass a marker in the harbor root short-circuits every later
+    /// launch, so a root whose import produced an unparseable central file
+    /// is never re-imported (it shows up once, flagged, in the registry UI).
     public static func migrateLegacyConfigsIfNeeded(legacyRegistry: URL? = nil,
                                                     modernRegistry: URL? = nil,
                                                     legacyAppSupport: URL = legacyDirectory,
                                                     central: URL = projectsDirectory) {
         let fm = FileManager.default
         try? fm.createDirectory(at: central, withIntermediateDirectories: true)
+
+        let marker = central.deletingLastPathComponent()
+            .appendingPathComponent(configMigrationMarkerName)
+        guard !fm.fileExists(atPath: marker.path) else { return }
+        defer { fm.createFile(atPath: marker.path, contents: nil) }
 
         let registry: URL
         if let legacyRegistry {
@@ -140,8 +153,9 @@ public enum HarborStoreLocation {
 
     /// Copies TOML text into the central store as `<slug>.toml`, injecting a
     /// top-level `root` key when the text does not declare one. Collision
-    /// names get `-2`, `-3`, … suffixes. Errors are swallowed: migration is
-    /// best-effort and retried on next startup.
+    /// names get `-2`, `-3`, … suffixes. Write errors are swallowed: the
+    /// migration pass runs once (marker), so a failed import is simply lost —
+    /// best-effort, matching the legacy-stores migration.
     private static func writeCentralConfig(text: String, root: URL, suggestedName: String,
                                            central: URL) {
         let fm = FileManager.default
