@@ -76,7 +76,17 @@ public struct KeyParser {
             let sequence = String(decoding: buffer[0...tilde], as: UTF8.self)
             if let key = Self.tildeTable[sequence] { return (key, tilde + 1) }
         }
-        // Incomplete (or unsupported) sequence: wait for more bytes.
+        // A complete but unrecognized sequence (Forward Delete's ESC[3~,
+        // Shift+Tab's ESC[Z, …) must not stall the parser — "wait for more
+        // bytes" would buffer every later keypress behind it forever. Emit
+        // the ESC and let the tail reparse as plain characters.
+        for byte in buffer[2...] {
+            if (0x40...0x7E).contains(byte) { return (.escape, 1) }
+            if !(0x20...0x3F).contains(byte) { break } // not CSI-shaped; keep waiting
+        }
+        // Bound the wait anyway so a wedged buffer can never be permanent.
+        if buffer.count > 32 { return (.escape, 1) }
+        // Incomplete sequence: wait for more bytes.
         return nil
     }
 

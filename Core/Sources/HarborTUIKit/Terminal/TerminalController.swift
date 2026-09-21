@@ -3,8 +3,8 @@ import Darwin
 import HarborCore
 
 /// Owns the terminal session: raw mode, alternate screen, stdin key decoding,
-/// SIGWINCH resize and SIGTERM cleanup, and presents Screen frames via a
-/// minimal-diff encoder. All callbacks fire on the main queue; present() is
+/// SIGWINCH resize and SIGTERM/SIGHUP cleanup, and presents Screen frames via
+/// a minimal-diff encoder. All callbacks fire on the main queue; present() is
 /// meant to be called from the main thread too.
 public final class TerminalController {
     /// The frame being composed. Mutate it, then call `present()`.
@@ -18,6 +18,7 @@ public final class TerminalController {
     private var keySource: DispatchSourceRead?
     private var winchSource: DispatchSourceSignal?
     private var termSource: DispatchSourceSignal?
+    private var hupSource: DispatchSourceSignal?
     private var parser = KeyParser()
     private let output = FileHandle.standardOutput
     private var previous: Screen?
@@ -58,6 +59,7 @@ public final class TerminalController {
         keySource?.cancel()
         winchSource?.cancel()
         termSource?.cancel()
+        hupSource?.cancel()
         writeRaw(Array("\u{1B}[0m\u{1B}[?25h\u{1B}[?1049l".utf8)) // reset style, show cursor, leave alt screen
         TerminalRawMode.restore(savedTermios)
     }
@@ -93,13 +95,36 @@ public final class TerminalController {
         }
         termSource.resume()
         self.termSource = termSource
+
+        // Closing the terminal window (or `kill -HUP`) signals the whole
+        // foreground group. Without this source the default disposition kills
+        // harbor-tui on the spot — no shutdown(), no emergency stop — while
+        // the managed children (own process groups) survive as orphans.
+        signal(SIGHUP, SIG_IGN)
+        let hupSource = DispatchSource.makeSignalSource(signal: SIGHUP, queue: .main)
+        hupSource.setEventHandler { [weak self] in
+            guard let self else { return }
+            if let onTerminate = self.onTerminate {
+                onTerminate()
+            } else {
+                self.shutdown()
+                exit(0)
+            }
+        }
+        hupSource.resume()
+        self.hupSource = hupSource
     }
 
     private func drainStdin() {
         var buffer = [UInt8](repeating: 0, count: 4096)
         let count = read(STDIN_FILENO, &buffer, buffer.count)
         guard count > 0 else {
-            // EOF: treat like a quit signal so the app loop can clean up.
+            if count < 0 && errno == EINTR {
+                // Interrupted read is not EOF — just wait for the next event.
+                return
+            }
+            // EOF (or a fatal read error): treat like a quit signal so the
+            // app loop can clean up.
             if let onTerminate {
                 onTerminate()
             } else {

@@ -1,11 +1,13 @@
 import SwiftUI
 import HarborCore
 
-/// Confirmation dialogs for port conflicts (single process + start-all),
-/// scoped to a project when `projectID` is given. Shared by the popover,
-/// the project detail view, and every start flow. Each dialog offers the
-/// three ways out: free the port (stop the managed holder or kill the
-/// foreign process tree), start anyway, or cancel.
+/// Confirmation dialogs for port conflicts (single process, start-all, and
+/// held `[[port_claim]]`s), scoped to a project when `projectID` is given.
+/// Mounted on the project detail view; the menubar popover renders the same
+/// pendings inline instead (system dialogs cannot present from a
+/// MenuBarExtra window). Only one dialog presents at a time — priority:
+/// single-process conflict, start-all, claim — the next one appears as soon
+/// as the current resolves.
 struct ProjectConflictDialogs: ViewModifier {
     @EnvironmentObject private var appState: AppState
     var projectID: String?
@@ -16,11 +18,13 @@ struct ProjectConflictDialogs: ViewModifier {
     }
 
     private var startAllVisible: Bool {
+        guard !conflictVisible else { return false } // one dialog at a time
         guard let pending = appState.pendingStartAllConflicts else { return false }
         return projectID == nil || pending.projectID == projectID
     }
 
     private var claimVisible: Bool {
+        guard !conflictVisible, !startAllVisible else { return false }
         guard let pending = appState.pendingClaimConflict else { return false }
         return projectID == nil || pending.projectID == projectID
     }

@@ -10,12 +10,14 @@ struct MenuBarPopoverView: View {
 
     private let maxPortRows = 8
 
-    private var listeners: [Listener] {
-        appState.portObserver.listeners
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // One snapshot per render — the per-row helpers each used to trigger
+        // their own process-table walk / conflict computation.
+        let listeners = appState.portObserver.listeners
+        let conflicts = appState.conflicts
+        let holdersByPID = appState.managedHolders(for: listeners)
+        let verifications = appState.allPortVerifications()
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Harbor").font(.headline)
                 Spacer()
@@ -24,11 +26,25 @@ struct MenuBarPopoverView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Divider()
-            projectsSection
+            if let killError = appState.lastKillError {
+                // Kill failures from every flow land here — the popover is
+                // open when most kills happen, and no alert can present.
+                HStack {
+                    Label(killError, systemImage: "xmark.octagon.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(3)
+                    Spacer()
+                    Button("Dismiss") { appState.lastKillError = nil }
+                        .controlSize(.small)
+                }
+            }
 
             Divider()
-            portsSection
+            projectsSection(conflicts: conflicts, verifications: verifications)
+
+            Divider()
+            portsSection(listeners: listeners, holdersByPID: holdersByPID)
 
             // Confirmation dialogs (system alerts) cannot be presented from a
             // MenuBarExtra popover window on macOS 13 — their buttons never
@@ -52,12 +68,14 @@ struct MenuBarPopoverView: View {
     private enum InlineConfirmation {
         case startAll
         case conflict
+        case claim
         case kill
     }
 
     private var inlineConfirmation: InlineConfirmation? {
         if appState.pendingStartAllConflicts != nil { return .startAll }
         if appState.pendingConflict != nil { return .conflict }
+        if appState.pendingClaimConflict != nil { return .claim }
         if appState.pendingKill != nil { return .kill }
         return nil
     }
@@ -111,6 +129,32 @@ struct MenuBarPopoverView: View {
                 .padding(8)
                 .background(Color.orange.opacity(0.12))
             }
+        case .claim:
+            if let pending = appState.pendingClaimConflict {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Depended-on port held — \(pending.projectName)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    ForEach(pending.items) { conflict in
+                        Text("Port \(conflict.port) (\(conflict.processName ?? "claim")) is in use by \(conflict.holderLabel) (PID \(conflict.listener.pid)).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("This port is a [[port_claim]] — its holder is usually infrastructure and is not killed.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button(claimButtonTitle(for: pending), role: .destructive) {
+                            appState.confirmPendingClaimConflict()
+                        }
+                        Spacer()
+                        Button("Cancel") { appState.cancelPendingClaimConflict() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.12))
+            }
         case .kill:
             if let pending = appState.pendingKill {
                 VStack(alignment: .leading, spacing: 6) {
@@ -135,6 +179,13 @@ struct MenuBarPopoverView: View {
         }
     }
 
+    private func claimButtonTitle(for pending: AppState.PendingClaimConflict) -> String {
+        if let processName = pending.processName {
+            return "Start \"\(processName)\" anyway"
+        }
+        return "Start all anyway"
+    }
+
     private var summaryText: String {
         let count = appState.managedRunningCount
         if appState.hasVisibleConflict { return "conflict · \(count) running" }
@@ -145,7 +196,8 @@ struct MenuBarPopoverView: View {
     // MARK: - Projects
 
     @ViewBuilder
-    private var projectsSection: some View {
+    private func projectsSection(conflicts: [PortPlanner.RuntimeConflict],
+                                 verifications: [ProcessKey: PortVerification]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("PROJECTS").font(.caption2).foregroundStyle(.secondary)
             if appState.registry.projects.isEmpty {
@@ -154,21 +206,22 @@ struct MenuBarPopoverView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(appState.registry.projects) { project in
-                projectRow(project)
+                projectRow(project, conflicts: conflicts, verifications: verifications)
             }
         }
     }
 
     @ViewBuilder
-    private func projectRow(_ project: Project) -> some View {
-        let verifications = appState.portVerifications(for: project)
+    private func projectRow(_ project: Project,
+                            conflicts: [PortPlanner.RuntimeConflict],
+                            verifications: [ProcessKey: PortVerification]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(project.name)
                     .font(.callout)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                if let conflict = appState.conflicts.first(where: { $0.projectName == project.name }) {
+                if let conflict = conflicts.first(where: { $0.projectName == project.name }) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
                         .font(.caption2)
@@ -207,9 +260,10 @@ struct MenuBarPopoverView: View {
             }
             HStack(spacing: 10) {
                 ForEach(project.processes) { definition in
+                    let key = ProcessKey(projectID: project.id, processName: definition.name)
                     processChip(project: project,
                                 definition: definition,
-                                verification: verifications[definition.name])
+                                verification: verifications[key])
                 }
             }
             if let error = project.configError {
@@ -247,17 +301,17 @@ struct MenuBarPopoverView: View {
     // MARK: - Ports
 
     @ViewBuilder
-    private var portsSection: some View {
+    private func portsSection(listeners: [Listener],
+                              holdersByPID: [pid_t: PortPlanner.ManagedHolder]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("LISTENING PORTS").font(.caption2).foregroundStyle(.secondary)
-            let listeners = appState.portObserver.listeners
             if listeners.isEmpty {
                 Text(appState.portObserver.lastError ?? "No listening TCP ports.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             ForEach(Array(listeners.prefix(maxPortRows))) { listener in
-                portRow(listener)
+                portRow(listener, isManaged: holdersByPID[listener.pid] != nil)
             }
             if listeners.count > maxPortRows {
                 Text("… \(listeners.count - maxPortRows) more — open Harbor for the full list")
@@ -268,7 +322,7 @@ struct MenuBarPopoverView: View {
     }
 
     @ViewBuilder
-    private func portRow(_ listener: Listener) -> some View {
+    private func portRow(_ listener: Listener, isManaged: Bool) -> some View {
         let expanded = expandedListenerID == listener.id
         VStack(spacing: 3) {
             Button {
@@ -289,7 +343,7 @@ struct MenuBarPopoverView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer()
-                    if appState.isManagedOrDescendant(listener.pid) {
+                    if isManaged {
                         Text("managed")
                             .font(.caption2)
                             .foregroundStyle(.green)

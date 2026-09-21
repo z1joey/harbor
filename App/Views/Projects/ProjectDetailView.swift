@@ -280,6 +280,10 @@ struct ProjectDetailView: View {
                 readyURL: definition.readyURL(port: livePort(for: definition, status: status)),
                 isReady: status.ready
             )
+            // New identity per process: the pane's @State (snapshot, scroll)
+            // must reset — otherwise it keeps showing the previous process's
+            // lines until the new buffer happens to emit.
+            .id(selectedProcessName)
             .frame(height: logPaneHeight)
         } else {
             Text("Select a process above to see its logs.")

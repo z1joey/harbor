@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Combine
 import HarborCore
 import HarborTUIKit
 
@@ -36,6 +37,16 @@ final class TuiApp {
 
     private var currentConflicts: [PortPlanner.RuntimeConflict] = []
     private var currentHolders: [pid_t: PortPlanner.ManagedHolder] = [:]
+    private var conflictsByProcess: [String: PortPlanner.RuntimeConflict] = [:]
+    private var currentOverlaps: [PortPlanner.StaticOverlap] = []
+    private var verifications: [ProcessKey: PortVerification] = [:]
+
+    /// Set whenever a service publishes a change (listener poll ~2s, process
+    /// statuses, registry reloads). The derived model above is rebuilt on
+    /// this cadence inside draw(), not on every repaint tick — the sysctl
+    /// walks don't need to run 5×/s just because the screen does.
+    private var modelDirty = true
+    private var cancellables = Set<AnyCancellable>()
 
     enum Overlay {
         case confirm(Confirmation)
@@ -83,6 +94,9 @@ final class TuiApp {
         supervisor.onAutoRestartGiveUp = { [weak self] _, message in
             self?.showFlash(message, style: Style(fg: .red))
         }
+        registry.objectWillChange.sink { [weak self] _ in self?.modelDirty = true }.store(in: &cancellables)
+        observer.objectWillChange.sink { [weak self] _ in self?.modelDirty = true }.store(in: &cancellables)
+        supervisor.objectWillChange.sink { [weak self] _ in self?.modelDirty = true }.store(in: &cancellables)
         observer.start(interval: 2.0)
         Task { await observer.refresh() }
 
@@ -113,26 +127,31 @@ final class TuiApp {
         case .confirm(let confirmation):
             handleConfirm(key, confirmation)
         case .command(var bar):
-            handleInput(key, bar: &bar, live: nil) { [weak self] input in
+            let editing = handleInput(key, bar: &bar, live: nil, onEnter: { [weak self] input in
                 self?.executeCommand(input)
-            } onCancel: { [weak self] in
+            }, onCancel: { [weak self] in
                 self?.overlay = nil
                 self?.draw()
+            })
+            if editing {
+                overlay = .command(bar) // write back edits before repainting
+                draw()
             }
-            if case .command = overlay { overlay = .command(bar) } // write back edits
         case .filter(var bar):
-            handleInput(key, bar: &bar, live: { [weak self] text in
+            let editing = handleInput(key, bar: &bar, live: { [weak self] text in
                 self?.ports.filter = text
-                self?.draw()
-            }) { [weak self] _ in
+            }, onEnter: { [weak self] _ in
                 self?.overlay = nil
                 self?.draw()
-            } onCancel: { [weak self] in
+            }, onCancel: { [weak self] in
                 self?.ports.filter = ""
                 self?.overlay = nil
                 self?.draw()
+            })
+            if editing {
+                overlay = .filter(bar) // write back edits before repainting
+                draw()
             }
-            if case .filter = overlay { overlay = .filter(bar) } // write back edits
         case .none:
             handleNormal(key)
         }
@@ -145,16 +164,20 @@ final class TuiApp {
         case .escape, .ctrl("c"): choice = nil
         default: return // ignore navigation keys while confirming
         }
+        // Only keys the prompt offers may act; anything else is ignored so a
+        // stray keypress can never confirm a destructive action.
+        if let choice, !confirmation.options.contains(where: { $0.key == choice }) {
+            return
+        }
         if choice == nil || choice == "c" || choice == "n" {
-            if confirmation.action == .quit, choice == "n" {
+            // Esc / Ctrl+C cancel any prompt — except the quit prompt, where
+            // they re-confirm the quit that was explicitly requested.
+            if confirmation.action == .quit, choice == nil {
                 overlay = nil
-                draw()
-            } else if choice == "c" || choice == "n" {
-                overlay = nil
-                draw()
+                quitNow()
             } else {
                 overlay = nil
-                quitNow() // Esc / Ctrl+C on a quit prompt quits
+                draw()
             }
             return
         }
@@ -163,6 +186,7 @@ final class TuiApp {
         case .quit:
             if choice == "q" { quitNow() } else { draw() }
         case .killListener(let listener):
+            // The options guard above leaves only "y" — kill is never implied.
             killForeign(listener)
         case .startProcess(let project, let definition, let key, let conflict):
             switch choice {
@@ -170,8 +194,12 @@ final class TuiApp {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     await self.freeConflict(conflict)
-                    self.supervisor.start(key: key, definition: definition, projectRoot: project.root)
-                    self.showFlash("starting \(definition.name)", style: Style(fg: .green))
+                    let claimBlockers = self.claimBlockers(project: project, startingProcesses: [definition.name])
+                    if !claimBlockers.isEmpty {
+                        self.promptClaimConflicts(project: project, definition: definition, key: key, blockers: claimBlockers)
+                    } else {
+                        self.startManaged(key, definition, project, successFlash: "starting \(definition.name)")
+                    }
                     self.draw()
                 }
             case "s":
@@ -179,8 +207,9 @@ final class TuiApp {
                 if !claimBlockers.isEmpty {
                     self.promptClaimConflicts(project: project, definition: definition, key: key, blockers: claimBlockers)
                 } else {
-                    supervisor.start(key: key, definition: definition, projectRoot: project.root)
-                    showFlash("started \(definition.name) despite conflict", style: Style(fg: .yellow))
+                    self.startManaged(key, definition, project,
+                                      successFlash: "started \(definition.name) despite conflict",
+                                      successStyle: Style(fg: .yellow))
                 }
             default: break
             }
@@ -192,15 +221,17 @@ final class TuiApp {
                     for conflict in conflicts {
                         await self.freeConflict(conflict)
                     }
-                    self.startAll(project, force: true)
+                    let pendingNames = self.notRunningProcessNames(project: project)
+                    let claimBlockers = self.claimBlockers(project: project, startingProcesses: pendingNames)
+                    if !claimBlockers.isEmpty {
+                        self.promptProjectClaimConflicts(project: project, blockers: claimBlockers)
+                    } else {
+                        self.startAll(project, force: true)
+                    }
                     self.draw()
                 }
             case "a":
-                let pendingNames = Set(project.processes.compactMap { definition -> String? in
-                    let key = ProcessKey(projectID: project.id, processName: definition.name)
-                    let state = supervisor.status(for: key).state
-                    return (!state.isRunningLike && state != .stopping) ? definition.name : nil
-                })
+                let pendingNames = notRunningProcessNames(project: project)
                 let claimBlockers = claimBlockers(project: project, startingProcesses: pendingNames)
                 if !claimBlockers.isEmpty {
                     promptProjectClaimConflicts(project: project, blockers: claimBlockers)
@@ -211,8 +242,9 @@ final class TuiApp {
             }
         case .startProcessClaims(let project, let definition, let key, _):
             if choice == "s" {
-                supervisor.start(key: key, definition: definition, projectRoot: project.root)
-                showFlash("started \(definition.name) despite conflict", style: Style(fg: .yellow))
+                startManaged(key, definition, project,
+                             successFlash: "started \(definition.name) despite conflict",
+                             successStyle: Style(fg: .yellow))
             }
         case .startAllClaims(let project, _):
             if choice == "a" {
@@ -223,28 +255,35 @@ final class TuiApp {
         draw()
     }
 
-    /// Shared input handling for command and filter bars.
+    /// Shared input handling for command and filter bars. Returns true while
+    /// still editing (the bar was mutated — the caller writes it back into
+    /// the overlay and repaints); false when the prompt finished or the key
+    /// was inert, with the callbacks having handled their own repaint.
+    @discardableResult
     private func handleInput(_ key: Key, bar: inout CommandBar, live: ((String) -> Void)?,
-                             onEnter: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+                             onEnter: @escaping (String) -> Void, onCancel: @escaping () -> Void) -> Bool {
         switch key {
         case .char(let ch):
             bar.insert(ch)
-            live?(bar.input)
         case .backspace:
             bar.backspace()
-            live?(bar.input)
-        case .left: bar.moveLeft()
-        case .right: bar.moveRight()
+        case .left:
+            bar.moveLeft()
+            return true
+        case .right:
+            bar.moveRight()
+            return true
         case .enter:
-            let input = bar.input
-            onEnter(input)
-            return
+            onEnter(bar.input)
+            return false
         case .escape, .ctrl("c"):
             onCancel()
-            return
-        default: return
+            return false
+        default:
+            return false
         }
-        draw()
+        live?(bar.input)
+        return true
     }
 
     private func handleNormal(_ key: Key) {
@@ -268,7 +307,12 @@ final class TuiApp {
         case .char("r"): restartSelection()
         case .char("f"):
             if panel == .logs {
-                if logs.view.follow { logs.view.scrollUp(0) } else { logs.view.toBottom() }
+                if logs.view.follow {
+                    // A page, not zero lines — the first press must visibly scroll.
+                    logs.view.scrollUp(max(1, terminal.screen.height - 4))
+                } else {
+                    logs.view.toBottom()
+                }
             }
         case .char("c"):
             if panel == .logs, let key = logs.focused {
@@ -365,7 +409,7 @@ final class TuiApp {
 
     private func focusLogs() {
         guard panel == .projects,
-              case .process(_, let definition, let key) = projectsTargets[safe: projectsSelected ?? -1] else { return }
+              case .process(_, _, let key) = projectsTargets[safe: projectsSelected ?? -1] else { return }
         logs.focused = key
         logs.view.toBottom()
         panel = .logs
@@ -405,7 +449,7 @@ final class TuiApp {
             promptClaimConflicts(project: project, definition: definition, key: key, blockers: claimBlockers)
             return
         }
-        supervisor.start(key: key, definition: definition, projectRoot: project.root)
+        startManaged(key, definition, project, successFlash: "starting \(definition.name)")
     }
 
     private func startAllSelection() {
@@ -452,6 +496,30 @@ final class TuiApp {
                                    managedHolder: { coordinator.managedHolder(forPID: $0) })
     }
 
+    private func notRunningProcessNames(project: Project) -> Set<String> {
+        Set(project.processes.compactMap { definition -> String? in
+            let key = ProcessKey(projectID: project.id, processName: definition.name)
+            let state = supervisor.status(for: key).state
+            return (!state.isRunningLike && state != .stopping) ? definition.name : nil
+        })
+    }
+
+    /// Starts a managed process and surfaces the Result — start failures (bad
+    /// cwd, spawn error) used to vanish into the log buffer behind a green
+    /// "starting …" flash. Returns whether the start was accepted.
+    @discardableResult
+    private func startManaged(_ key: ProcessKey, _ definition: ProcessDefinition, _ project: Project,
+                              successFlash: String, successStyle: Style = Style(fg: .green)) -> Bool {
+        switch supervisor.start(key: key, definition: definition, projectRoot: project.root) {
+        case .success:
+            showFlash(successFlash, style: successStyle)
+            return true
+        case .failure(let error):
+            showFlash("start failed: \(error.message)", style: Style(fg: .red))
+            return false
+        }
+    }
+
     private func promptClaimConflicts(project: Project, definition: ProcessDefinition, key: ProcessKey,
                                       blockers: [PortPlanner.RuntimeConflict]) {
         let held = blockers.map { ":\($0.port) held by \($0.holderLabel)" }.joined(separator: ", ")
@@ -486,7 +554,7 @@ final class TuiApp {
                     "— Harbor: skipped — port \(conflict.port) is held by \(conflict.holderLabel) —")
                 continue
             }
-            supervisor.start(key: key, definition: definition, projectRoot: project.root)
+            startManaged(key, definition, project, successFlash: "starting \(definition.name)")
         }
     }
 
@@ -527,9 +595,18 @@ final class TuiApp {
 
     private func restartSelection() {
         guard panel == .projects,
-              case .process(let project, _, let key) = projectsTargets[safe: projectsSelected ?? -1] else { return }
+              case .process(let project, let definition, let key) = projectsTargets[safe: projectsSelected ?? -1] else { return }
         Task { @MainActor [weak self] in
-            await self?.supervisor.restart(key: key, projectRoot: project.root)
+            guard let self else { return }
+            await self.supervisor.stop(key: key)
+            // Refresh the snapshot and the cached gates, so restart goes
+            // through the same conflict prompts as a fresh start instead of
+            // silently bypassing them (or tripping on the dead process's
+            // stale listener).
+            await self.observer.refresh()
+            self.draw()
+            self.startProcessFlow(project, definition, key)
+            self.draw()
         }
     }
 
@@ -641,19 +718,11 @@ final class TuiApp {
     private var visibleListeners: [Listener] = []
     private var allocationItems: [PortsPanel.AllocationItem] = []
 
-    private func draw() {
-        if let flash, Date() > flash.until { self.flash = nil }
-
-        var screen = terminal.screen
-        screen.clear()
-        let width = screen.width
-        let height = screen.height
-        guard width >= 24, height >= 6 else {
-            terminal.present()
-            return
-        }
-
-        // Shared per-frame data (one process-table walk).
+    /// Recomputes everything derived from the services (one process-table
+    /// walk). Runs when a service publishes a change — not on every repaint
+    /// tick, whose output the diff encoder makes cheap but whose inputs are
+    /// not.
+    private func rebuildModel() {
         let parents = coordinator.processTableParents()
         let listeners = observer.listeners
         currentHolders = [:]
@@ -665,12 +734,14 @@ final class TuiApp {
         currentConflicts = PortPlanner.runtimeConflicts(projects: registry.projects,
                                                         listeners: listeners,
                                                         managedHolder: { currentHolders[$0] })
-        var conflictsByProcess: [String: PortPlanner.RuntimeConflict] = [:]
+        // Keyed by project too — two projects can both have a process named "web".
+        conflictsByProcess = [:]
         for conflict in currentConflicts {
-            if let name = conflict.processName { conflictsByProcess[name] = conflict }
+            if let name = conflict.processName { conflictsByProcess["\(conflict.projectID)::\(name)"] = conflict }
         }
+        currentOverlaps = PortPlanner.staticOverlaps(projects: registry.projects)
         let processTable = parents.map { (pid: $0.key, ppid: $0.value) }
-        var verifications: [ProcessKey: PortVerification] = [:]
+        verifications = [:]
         for project in registry.projects {
             for definition in project.processes {
                 let key = ProcessKey(projectID: project.id, processName: definition.name)
@@ -682,13 +753,32 @@ final class TuiApp {
                 }
             }
         }
+    }
+
+    private func draw() {
+        if let flash, Date() > flash.until { self.flash = nil }
+
+        var screen = terminal.screen
+        screen.clear()
+        let width = screen.width
+        let height = screen.height
+        guard width >= 24, height >= 6 else {
+            screen.drawString("terminal too small (need ≥ 24×6)", x: 0, y: 0, style: Style(fg: .red))
+            terminal.screen = screen
+            terminal.present()
+            return
+        }
+
+        if modelDirty {
+            rebuildModel()
+            modelDirty = false
+        }
 
         // Top bar.
         let running = supervisor.runningCount()
         var top = "harbor — \(registry.projects.count) projects · \(running) running"
         if !currentConflicts.isEmpty { top += " · \(currentConflicts.count) port conflicts" }
-        let overlaps = PortPlanner.staticOverlaps(projects: registry.projects)
-        if !overlaps.isEmpty { top += " · \(overlaps.count) static overlaps" }
+        if !currentOverlaps.isEmpty { top += " · \(currentOverlaps.count) static overlaps" }
         screen.fillRow(0, style: Style(reverse: true), text: truncatedToWidth(top, width))
 
         // Panel area.
@@ -709,7 +799,7 @@ final class TuiApp {
             logs.refresh(lines: lines)
             logs.render(into: &screen, rect: area, label: logsLabel())
         case .ports:
-            drawPorts(into: &screen, area: area, listeners: listeners, holders: currentHolders, overlaps: overlaps)
+            drawPorts(into: &screen, area: area, listeners: observer.listeners, holders: currentHolders, overlaps: currentOverlaps)
         }
 
         // Bottom bars.

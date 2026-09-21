@@ -13,6 +13,9 @@ struct LogPaneView: View {
     var isReady: Bool?
 
     @State private var lines: [String] = []
+    /// Stable line number of `lines[0]` (dropped count once the ring wrapped) —
+    /// row identity survives ring wraps, unlike array offsets.
+    @State private var baseLine = 0
     @State private var follow = true
 
     private var openInBrowserURL: URL? {
@@ -30,8 +33,8 @@ struct LogPaneView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
-                        if buffer.droppedLineCount > 0 {
-                            Text("… \(buffer.droppedLineCount) earlier lines dropped (ring buffer holds \(buffer.capacityLimit)) …")
+                        if baseLine > 0 {
+                            Text("… \(baseLine) earlier lines dropped (ring buffer holds \(buffer.capacityLimit)) …")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.tertiary)
                         }
@@ -40,7 +43,7 @@ struct LogPaneView: View {
                                 .font(.system(size: 11, design: .monospaced))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(index)
+                                .id(baseLine + index)
                         }
                     }
                     .padding(8)
@@ -62,10 +65,12 @@ struct LogPaneView: View {
     }
 
     private func refreshLines(proxy: ScrollViewProxy) {
-        lines = buffer.snapshot()
+        let snapshot = buffer.snapshotWithBase()
+        lines = snapshot.lines
+        baseLine = snapshot.base
         guard follow, !lines.isEmpty else { return }
         DispatchQueue.main.async {
-            proxy.scrollTo(lines.count - 1, anchor: .bottom)
+            proxy.scrollTo(baseLine + lines.count - 1, anchor: .bottom)
         }
     }
 

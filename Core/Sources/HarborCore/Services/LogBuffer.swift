@@ -41,6 +41,14 @@ public final class LogBuffer: ObservableObject {
         return lines
     }
 
+    /// Snapshot plus the stable line number of `lines[0]` (`droppedLineCount`
+    /// when the ring has wrapped). Line numbers stay unique across wraps, so
+    /// views can key rows on them instead of array offsets.
+    public func snapshotWithBase() -> (lines: [String], base: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (lines, droppedLines)
+    }
+
     public func clear() {
         lock.lock()
         lines.removeAll()

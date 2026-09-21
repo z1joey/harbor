@@ -110,6 +110,7 @@ public enum HarborConfigParser {
 
         var processes: [ProcessDefinition] = []
         var seenNames = Set<String>()
+        var seenPorts: [Int: String] = [:]
         for index in 0..<processArray.count {
             guard let entry = processArray[index]?.table else {
                 throw HarborConfigError.invalid("process[\(index)] is not a table.")
@@ -131,6 +132,10 @@ public enum HarborConfigParser {
                     throw HarborConfigError.invalid("Process \"\(processName)\": port \(parsedPort) is out of range (1–65535).")
                 }
                 port = parsedPort
+                if let firstOwner = seenPorts[parsedPort] {
+                    throw HarborConfigError.invalid("Process \"\(processName)\": port \(parsedPort) is already declared by process \"\(firstOwner)\".")
+                }
+                seenPorts[parsedPort] = processName
             } else if let portString = entry["port"]?.string {
                 if portString == "auto" {
                     throw HarborConfigError.invalid("Process \"\(processName)\": port = \"auto\" is no longer supported; declare an integer port from the Harbor pool (default 8100–8199).")

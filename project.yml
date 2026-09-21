@@ -44,7 +44,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.harbor.Harbor
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
 
 schemes:
   Harbor:

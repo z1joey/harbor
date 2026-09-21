@@ -168,6 +168,20 @@ final class ConfigParserTests: XCTestCase {
         """))
     }
 
+    func testDuplicateProcessPortsAreRejected() {
+        XCTAssertThrowsError(try HarborConfigParser.parse(text: """
+        [[process]]
+        name = "api"
+        command = "a"
+        port = 8000
+
+        [[process]]
+        name = "web"
+        command = "b"
+        port = 8000
+        """))
+    }
+
     func testOutOfRangePortIsRejected() {
         XCTAssertThrowsError(try HarborConfigParser.parse(text: """
         [[process]]
